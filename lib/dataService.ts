@@ -780,8 +780,15 @@ export class DataService {
     if (status && status !== 'all') {
       requests = requests.filter(request => request.status === status);
     }
-
     return requests;
+  }
+
+  static async updateFeederPointRequest(id: string, data: Partial<FeederPointRequest>): Promise<void> {
+    const requestRef = doc(db, 'feederPointRequests', id);
+    await updateDoc(requestRef, {
+      ...data,
+      updatedAt: serverTimestamp()
+    });
   }
 
   // Get all access requests
