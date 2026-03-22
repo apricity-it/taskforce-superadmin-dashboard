@@ -18,7 +18,8 @@ import {
   BarChart3,
   Sparkles,
   ClipboardCheck,
-  UserPlus
+  UserPlus,
+  Database
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -28,6 +29,7 @@ interface LayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Master', href: '/master', icon: Database },
   { name: 'Users', href: '/users', icon: Users },
   { name: 'Access Requests', href: '/access-requests', icon: UserCheck },
   { name: 'Feeder Points', href: '/feeder-points', icon: Activity },
