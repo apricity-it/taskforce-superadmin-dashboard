@@ -167,6 +167,8 @@ export interface FeederPoint {
   name: string;
   assignedUserId?: string;
   assignedTeamId?: string;
+  // kothiId?: string;      // 👈 add this
+  // kothiName?: string;    // 👈 add this
   status: 'active' | 'maintenance' | 'inactive';
   location: {
     address: string;
@@ -210,6 +212,44 @@ export interface FeederPointRequest {
   createdAt?: any;
   updatedAt?: any;
 }
+
+export interface Zone {
+  id: string;
+  name: string;
+  createdAt?: any;
+}
+ 
+export interface Ward {
+  id: string;
+  name: string;
+  zoneId: string;
+  zoneName?: string;
+  createdAt?: any;
+}
+ 
+export interface Kothi {
+  id: string;
+  name: string;
+  wardId: string;
+  wardName?: string;
+  createdAt?: any;
+}
+ 
+export interface Assignment {
+  id: string;
+  zoneId?: string;
+  zoneName?: string;
+  wardId?: string;
+  wardName?: string;
+  kothiId?: string;
+  kothiName?: string;
+  feederPointId: string;
+  feederPointName?: string;
+  userId: string;
+  userName?: string;
+  createdAt?: any;
+}
+ 
 
 export class DataService {
   private static coerceDate(value: any): Date | null {
@@ -1103,5 +1143,85 @@ export class DataService {
   static async deleteUser(id: string): Promise<void> {
     const userRef = doc(db, 'approvedUsers', id);
     await deleteDoc(userRef);
+  }
+
+  // ── ZONES ──────────────────────────────────────────────────────────────────
+  static onZonesChange(callback: (zones: Zone[]) => void) {
+    const q = query(collection(db, 'zones'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snapshot => {
+      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Zone)));
+    });
+  }
+ 
+  static async createZone(data: Omit<Zone, 'id'>): Promise<void> {
+    await setDoc(doc(collection(db, 'zones')), { ...data, createdAt: serverTimestamp() });
+  }
+ 
+  static async updateZone(id: string, data: Partial<Zone>): Promise<void> {
+    await updateDoc(doc(db, 'zones', id), data);
+  }
+ 
+  static async deleteZone(id: string): Promise<void> {
+    await deleteDoc(doc(db, 'zones', id));
+  }
+ 
+  // ── WARDS ──────────────────────────────────────────────────────────────────
+  static onWardsChange(callback: (wards: Ward[]) => void) {
+    const q = query(collection(db, 'wards'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snapshot => {
+      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ward)));
+    });
+  }
+ 
+  static async createWard(data: Omit<Ward, 'id'>): Promise<void> {
+    await setDoc(doc(collection(db, 'wards')), { ...data, createdAt: serverTimestamp() });
+  }
+ 
+  static async updateWard(id: string, data: Partial<Ward>): Promise<void> {
+    await updateDoc(doc(db, 'wards', id), data);
+  }
+ 
+  static async deleteWard(id: string): Promise<void> {
+    await deleteDoc(doc(db, 'wards', id));
+  }
+ 
+  // ── KOTHIS ─────────────────────────────────────────────────────────────────
+  static onKothisChange(callback: (kothis: Kothi[]) => void) {
+    const q = query(collection(db, 'kothis'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snapshot => {
+      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Kothi)));
+    });
+  }
+ 
+  static async createKothi(data: Omit<Kothi, 'id'>): Promise<void> {
+    await setDoc(doc(collection(db, 'kothis')), { ...data, createdAt: serverTimestamp() });
+  }
+ 
+  static async updateKothi(id: string, data: Partial<Kothi>): Promise<void> {
+    await updateDoc(doc(db, 'kothis', id), data);
+  }
+ 
+  static async deleteKothi(id: string): Promise<void> {
+    await deleteDoc(doc(db, 'kothis', id));
+  }
+ 
+  // ── ASSIGNMENTS ────────────────────────────────────────────────────────────
+   static onAssignmentsChange(callback: (assignments: Assignment[]) => void) {
+    const q = query(collection(db, 'assignments'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snapshot => {
+      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignment)));
+    });
+  }
+ 
+  static async createAssignment(data: Omit<Assignment, 'id'>): Promise<void> {
+    await setDoc(doc(collection(db, 'assignments')), { ...data, createdAt: serverTimestamp() });
+  }
+ 
+  static async updateAssignment(id: string, data: Partial<Assignment>): Promise<void> {
+    await updateDoc(doc(db, 'assignments', id), data);
+  }
+ 
+  static async deleteAssignment(id: string): Promise<void> {
+    await deleteDoc(doc(db, 'assignments', id));
   }
 }
