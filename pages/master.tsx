@@ -173,6 +173,7 @@ function WardsTab() {
   const [wards, setWards] = useState<Ward[]>([])
   const [zones, setZones] = useState<Zone[]>([])
   const [loading, setLoading] = useState(true)
+  const [zoneFilter, setZoneFilter] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Ward | null>(null)
   const [formName, setFormName] = useState('')
@@ -189,6 +190,7 @@ function WardsTab() {
   }, [])
 
   const getZoneName = (zoneId: string) => zones.find(z => z.id === zoneId)?.name ?? '—'
+  const filteredWards = zoneFilter ? wards.filter(w => w.zoneId === zoneFilter) : wards
 
   const openAdd = () => { setEditing(null); setFormName(''); setFormZoneId(''); setShowModal(true) }
   const openEdit = (w: Ward) => { setEditing(w); setFormName(w.name); setFormZoneId(w.zoneId); setShowModal(true) }
@@ -219,7 +221,18 @@ function WardsTab() {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-gray-500">{wards.length} ward{wards.length !== 1 ? 's' : ''}</p>
+        {/* <p className="text-sm text-gray-500">{wards.length} ward{wards.length !== 1 ? 's' : ''}</p> */}
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-gray-500">{filteredWards.length} ward{filteredWards.length !== 1 ? 's' : ''}</p>
+          <select
+            value={zoneFilter}
+            onChange={e => setZoneFilter(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Zones</option>
+            {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+          </select>
+        </div>
         <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
           <Plus className="h-4 w-4" /> Add Ward
         </button>
@@ -244,7 +257,7 @@ function WardsTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {wards.map((w, i) => (
+              {filteredWards.map((w, i) => (
                 <tr key={w.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-400">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{w.name}</td>
@@ -309,7 +322,10 @@ function WardsTab() {
 function KothisTab() {
   const [kothis, setKothis] = useState<Kothi[]>([])
   const [wards, setWards] = useState<Ward[]>([])
+  const [zones, setZones] = useState<Zone[]>([])
   const [loading, setLoading] = useState(true)
+  const [zoneFilter, setZoneFilter] = useState('')
+  const [wardFilter, setWardFilter] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Kothi | null>(null)
   const [formName, setFormName] = useState('')
@@ -321,11 +337,19 @@ function KothisTab() {
   useEffect(() => {
     const unsubKothis = DataService.onKothisChange(setKothis)
     const unsubWards = DataService.onWardsChange(setWards)
+    const unsubZones = DataService.onZonesChange(setZones)
     setLoading(false)
-    return () => { unsubKothis(); unsubWards() }
+    return () => { unsubKothis(); unsubWards(); unsubZones() }
   }, [])
 
+
   const getWardName = (wardId: string) => wards.find(w => w.id === wardId)?.name ?? '—'
+  const filteredWardOptions = zoneFilter ? wards.filter(w => w.zoneId === zoneFilter) : wards
+  const filteredKothis = kothis.filter(k => {
+    if (wardFilter) return k.wardId === wardFilter
+    if (zoneFilter) return filteredWardOptions.some(w => w.id === k.wardId)
+    return true
+  })
 
   const openAdd = () => { setEditing(null); setFormName(''); setFormWardId(''); setShowModal(true) }
   const openEdit = (k: Kothi) => { setEditing(k); setFormName(k.name); setFormWardId(k.wardId); setShowModal(true) }
@@ -356,7 +380,26 @@ function KothisTab() {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-gray-500">{kothis.length} kothi{kothis.length !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <p className="text-sm text-gray-500">{filteredKothis.length} kothi{filteredKothis.length !== 1 ? 's' : ''}</p>
+          <select
+            value={zoneFilter}
+            onChange={e => { setZoneFilter(e.target.value); setWardFilter('') }}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Zones</option>
+            {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+          </select>
+          <select
+            value={wardFilter}
+            onChange={e => setWardFilter(e.target.value)}
+            disabled={!zoneFilter}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+          >
+            <option value="">All Wards</option>
+            {filteredWardOptions.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
         <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
           <Plus className="h-4 w-4" /> Add Kothi
         </button>
@@ -381,7 +424,7 @@ function KothisTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {kothis.map((k, i) => (
+              {filteredKothis.map((k, i) => (
                 <tr key={k.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-400">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{k.name}</td>
@@ -481,9 +524,10 @@ function AssignmentTab() {
   const filteredWards = allWards.filter(w => w.zoneId === formZoneId)
   const filteredKothis = allKothis.filter(k => k.wardId === formWardId)
   // Feeder points filtered by zone (since FP already has zone info)
-  const filteredFeederPoints = formZoneId
-    ? allFeederPoints.filter(f => f.zoneId === formZoneId || f.zoneNumber === formZoneId || f.zone === formZoneId)
-    : allFeederPoints
+  // const filteredFeederPoints = formZoneId
+  //   ? allFeederPoints.filter(f => f.zoneId === formZoneId || f.zoneNumber === formZoneId || f.zone === formZoneId)
+  //   : allFeederPoints
+  const filteredFeederPoints = allFeederPoints
 
   const getZoneName = (id: string) => allZones.find(z => z.id === id)?.name ?? '—'
   const getWardName = (id: string) => allWards.find(w => w.id === id)?.name ?? '—'
@@ -644,13 +688,13 @@ function AssignmentTab() {
             </div>
 
             {/* Task Force User */}
-            <div>
+            {/* <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Task Force User</label>
               <select value={formUserId} onChange={e => setFormUserId(e.target.value)} className={selectClass}>
                 <option value="">Select a user</option>
                 {taskForceUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
-            </div>
+            </div> */}
 
             <div className="flex gap-3 justify-end pt-2">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
@@ -705,9 +749,8 @@ export default function MasterPage() {
             <button
               key={tab.name}
               onClick={() => setActiveTab(tab.name)}
-              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                isActive ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-              }`}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${isActive ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+                }`}
             >
               <tab.icon className="h-4 w-4" />
               {tab.name}

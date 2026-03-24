@@ -167,8 +167,9 @@ export interface FeederPoint {
   name: string;
   assignedUserId?: string;
   assignedTeamId?: string;
-  // kothiId?: string;      // 👈 add this
-  // kothiName?: string;    // 👈 add this
+  kothiId?: string;     
+  kothiName?: string;    
+  isEliminated?: boolean
   status: 'active' | 'maintenance' | 'inactive';
   location: {
     address: string;
