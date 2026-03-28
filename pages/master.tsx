@@ -527,7 +527,10 @@ function AssignmentTab() {
   // const filteredFeederPoints = formZoneId
   //   ? allFeederPoints.filter(f => f.zoneId === formZoneId || f.zoneNumber === formZoneId || f.zone === formZoneId)
   //   : allFeederPoints
-  const filteredFeederPoints = allFeederPoints
+  // const filteredFeederPoints = allFeederPoints
+  const filteredFeederPoints = formKothiId
+    ? allFeederPoints.filter(f => f.kothiId === formKothiId)
+    : []
 
   const getZoneName = (id: string) => allZones.find(z => z.id === id)?.name ?? '—'
   const getWardName = (id: string) => allWards.find(w => w.id === id)?.name ?? '—'
@@ -681,7 +684,13 @@ function AssignmentTab() {
             {/* Feeder Point */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Feeder Point</label>
-              <select value={formFeederPointId} onChange={e => setFormFeederPointId(e.target.value)} disabled={!formZoneId} className={selectClass}>
+              {/* <select value={formFeederPointId} onChange={e => setFormFeederPointId(e.target.value)} disabled={!formZoneId} className={selectClass}> */}
+              <select
+                value={formFeederPointId}
+                onChange={e => setFormFeederPointId(e.target.value)}
+                disabled={!formKothiId}
+                className={selectClass}
+              >
                 <option value="">Select a feeder point</option>
                 {filteredFeederPoints.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>

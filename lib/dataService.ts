@@ -1040,21 +1040,82 @@ export class DataService {
     }
   }
 
-  static async approveAccessRequest(request: AccessRequest): Promise<void> {
-    try {
-      const requestRef = doc(db, 'accessRequests', request.id);
-      await updateDoc(requestRef, {
-        status: 'approved',
-        reviewedAt: serverTimestamp(),
-        reviewedBy: 'AdminUserPlaceholder', // Replace with actual admin user ID/name
-        updatedAt: serverTimestamp()
-      });
-      console.log('✅ Access request approved:', request.id);
-    } catch (error) {
-      console.error('❌ Error approving access request:', error);
-      throw error;
-    }
+  // static async approveAccessRequest(request: AccessRequest): Promise<void> {
+  //   try {
+  //     const requestRef = doc(db, 'accessRequests', request.id);
+  //     await updateDoc(requestRef, {
+  //       status: 'approved',
+  //       reviewedAt: serverTimestamp(),
+  //       reviewedBy: 'AdminUserPlaceholder', // Replace with actual admin user ID/name
+  //       updatedAt: serverTimestamp()
+  //     });
+  //     console.log('✅ Access request approved:', request.id);
+  //   } catch (error) {
+  //     console.error('❌ Error approving access request:', error);
+  //     throw error;
+  //   }
+  // }
+static getRolePermissions(role: string): string[] {
+  switch (role) {
+    case 'task_force_team':
+      return ['view_reports', 'create_reports'];
+    case 'commissioner':
+      return ['view_reports', 'approve_reports'];
+    case 'admin':
+      return ['manage_users', 'system_settings'];
+    default:
+      return [];
   }
+}
+  static async approveAccessRequest(request: AccessRequest): Promise<void> {
+  try {
+    const userId = request.email.toLowerCase();
+
+    const userRef = doc(db, 'approvedUsers', userId);
+    const existingUser = await getDoc(userRef);
+
+    if (existingUser.exists()) {
+      console.log('⚠️ User already exists');
+      return;
+    }
+
+    // ✅ FIXED LINE
+    const permissions = DataService.getRolePermissions(request.requestedRole);
+
+    // ✅ Step 1: Create user FIRST
+    await setDoc(userRef, {
+      id: userId,
+      name: request.name,
+      email: request.email.toLowerCase(), // 🔥 normalize
+      phone: request.phone,
+      role: request.requestedRole,
+      organization: request.organization || null,
+      department: request.department || null,
+      permissions,
+      isActive: true,
+      isDeleted: false,
+      accountStatus: 'active',
+      approvedAt: serverTimestamp(),
+      approvedBy: 'AdminUserPlaceholder',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    // ✅ Step 2: Update request
+    await updateDoc(doc(db, 'accessRequests', request.id), {
+      status: 'approved',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: 'AdminUserPlaceholder',
+      updatedAt: serverTimestamp()
+    });
+
+    console.log('✅ User created & request approved:', request.email);
+
+  } catch (error) {
+    console.error('❌ Error approving access request:', error);
+    throw error;
+  }
+}
 
   static async rejectAccessRequest(requestId: string): Promise<void> {
     try {
