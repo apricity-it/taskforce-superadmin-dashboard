@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { 
-  MapPin, 
-  Search, 
-  Filter, 
-  Eye, 
-  Edit, 
-  Trash2, 
-  Users, 
-  Calendar, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  MapPin,
+  Search,
+  Filter,
+  Eye,
+  Edit,
+  Trash2,
+  Users,
+  Calendar,
+  AlertTriangle,
+  CheckCircle,
   Clock,
   TrendingUp,
   Activity,
   Zap,
   Settings,
   User as UserIcon,
-  X
+  X,
+  Ban
 } from 'lucide-react'
 import { DataService, FeederPoint, Team, User, ComplianceReport, ComplianceAnswer } from '@/lib/dataService'
 import { AIService } from '@/lib/aiService'
@@ -82,6 +83,7 @@ export default function FeederPointsPage() {
   const [reportError, setReportError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingFeederPoint, setEditingFeederPoint] = useState<any | null>(null)
+  const [togglingEliminated, setTogglingEliminated] = useState<string | null>(null)
 
   useEffect(() => {
     const unsubscribeFeederPoints = DataService.onFeederPointsChange(feederPointsData => {
@@ -154,10 +156,42 @@ export default function FeederPointsPage() {
     setLoading(false);
   };
 
+  // const filterFeederPoints = () => {
+  //   let filtered = enhancedFeederPoints
+
+  //   // Search filter
+  //   if (searchTerm) {
+  //     filtered = filtered.filter(fp =>
+  //       fp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //       fp.location?.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //       fp.assignmentDetails?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  //     )
+  //   }
+
+  //   // Status filter
+  //   if (statusFilter !== 'all') {
+  //     filtered = filtered.filter(fp => fp.status === statusFilter)
+  //   }
+
+  //   // Assignment filter
+  //   if (assignmentFilter !== 'all') {
+  //     if (assignmentFilter === 'assigned') {
+  //       filtered = filtered.filter(fp => fp.assignmentDetails)
+  //     } else if (assignmentFilter === 'unassigned') {
+  //       filtered = filtered.filter(fp => !fp.assignmentDetails)
+  //     } else if (assignmentFilter === 'individual') {
+  //       filtered = filtered.filter(fp => fp.assignmentDetails?.type === 'individual')
+  //     } else if (assignmentFilter === 'team') {
+  //       filtered = filtered.filter(fp => fp.assignmentDetails?.type === 'team')
+  //     }
+  //   }
+
+  //   setFilteredFeederPoints(filtered)
+  // }
+
   const filterFeederPoints = () => {
     let filtered = enhancedFeederPoints
 
-    // Search filter
     if (searchTerm) {
       filtered = filtered.filter(fp =>
         fp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -166,12 +200,15 @@ export default function FeederPointsPage() {
       )
     }
 
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(fp => fp.status === statusFilter)
+    if (statusFilter === 'eliminated') {
+      filtered = filtered.filter(fp => fp.isEliminated === true)
+    } else {
+      filtered = filtered.filter(fp => !fp.isEliminated)
+      if (statusFilter !== 'all') {
+        filtered = filtered.filter(fp => fp.status === statusFilter)
+      }
     }
 
-    // Assignment filter
     if (assignmentFilter !== 'all') {
       if (assignmentFilter === 'assigned') {
         filtered = filtered.filter(fp => fp.assignmentDetails)
@@ -185,6 +222,27 @@ export default function FeederPointsPage() {
     }
 
     setFilteredFeederPoints(filtered)
+  }
+
+  const handleToggleEliminated = async (feederPoint: any) => {
+    const isCurrentlyEliminated = !!feederPoint.isEliminated
+
+    const message = isCurrentlyEliminated
+      ? `Are you sure you want to remove "${feederPoint.name}" from eliminated list and mark it as active again?`
+      : `Are you sure you want to eliminate "${feederPoint.name}"? It will be hidden from active feeder points.`
+
+    const confirmed = window.confirm(message)
+    if (!confirmed) return
+
+    setTogglingEliminated(feederPoint.id)
+    try {
+      await DataService.updateFeederPoint(feederPoint.id, {
+        isEliminated: !isCurrentlyEliminated
+      })
+    } catch (error) {
+      console.error('Error toggling eliminated:', error)
+    }
+    setTogglingEliminated(null)
   }
 
   const handleViewDetails = async (feederPoint: any) => {
@@ -371,8 +429,8 @@ export default function FeederPointsPage() {
               <span className="text-sm text-gray-600">Assigned</span>
               <div className="flex items-center space-x-2">
                 <div className="w-32 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-green-500 h-2 rounded-full" 
+                  <div
+                    className="bg-green-500 h-2 rounded-full"
                     style={{ width: `${(stats.assigned / stats.total) * 100}%` }}
                   ></div>
                 </div>
@@ -383,8 +441,8 @@ export default function FeederPointsPage() {
               <span className="text-sm text-gray-600">Unassigned</span>
               <div className="flex items-center space-x-2">
                 <div className="w-32 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-red-500 h-2 rounded-full" 
+                  <div
+                    className="bg-red-500 h-2 rounded-full"
                     style={{ width: `${(stats.unassigned / stats.total) * 100}%` }}
                   ></div>
                 </div>
@@ -401,8 +459,8 @@ export default function FeederPointsPage() {
               <span className="text-sm text-gray-600">Individual</span>
               <div className="flex items-center space-x-2">
                 <div className="w-32 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-500 h-2 rounded-full" 
+                  <div
+                    className="bg-blue-500 h-2 rounded-full"
                     style={{ width: `${stats.assigned > 0 ? (stats.individual / stats.assigned) * 100 : 0}%` }}
                   ></div>
                 </div>
@@ -413,8 +471,8 @@ export default function FeederPointsPage() {
               <span className="text-sm text-gray-600">Team</span>
               <div className="flex items-center space-x-2">
                 <div className="w-32 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-purple-500 h-2 rounded-full" 
+                  <div
+                    className="bg-purple-500 h-2 rounded-full"
                     style={{ width: `${stats.assigned > 0 ? (stats.team / stats.assigned) * 100 : 0}%` }}
                   ></div>
                 </div>
@@ -451,6 +509,7 @@ export default function FeederPointsPage() {
               <option value="active">Active</option>
               <option value="maintenance">Maintenance</option>
               <option value="inactive">Inactive</option>
+              <option value="eliminated">Eliminated</option>
             </select>
 
             <select
@@ -475,6 +534,7 @@ export default function FeederPointsPage() {
             <h2 className="text-lg font-semibold text-gray-900">
               Feeder Points ({filteredFeederPoints.length})
             </h2>
+
             <div className="flex items-center space-x-2 text-sm text-gray-500">
               <Activity className="h-4 w-4" />
               <span>Real-time data</span>
@@ -485,6 +545,9 @@ export default function FeederPointsPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Eliminated
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Feeder Point
                   </th>
@@ -510,7 +573,18 @@ export default function FeederPointsPage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredFeederPoints.map((feederPoint, index) => (
-                  <tr key={feederPoint.id || index} className="hover:bg-gray-50">
+                  // <tr key={feederPoint.id || index} className="hover:bg-gray-50">
+                  <tr key={feederPoint.id || index} className={`hover:bg-gray-50 ${feederPoint.isEliminated ? 'opacity-60 bg-red-50' : ''}`}>
+                    <td className="px-4 py-4 whitespace-nowrap text-center">
+                      <input
+                        type="checkbox"
+                        checked={!!feederPoint.isEliminated}
+                        disabled={togglingEliminated === feederPoint.id}
+                        onChange={() => handleToggleEliminated(feederPoint)}
+                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                        title={feederPoint.isEliminated ? 'Mark as active' : 'Mark as eliminated'}
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
@@ -534,10 +608,10 @@ export default function FeederPointsPage() {
                         <div>
                           <div className="text-sm text-gray-900">
                             {feederPoint.location?.address ||
-                             feederPoint.address ||
-                             (feederPoint.location?.latitude && feederPoint.location?.longitude
-                               ? `${feederPoint.location.latitude}, ${feederPoint.location.longitude}`
-                               : 'No location data')}
+                              feederPoint.address ||
+                              (feederPoint.location?.latitude && feederPoint.location?.longitude
+                                ? `${feederPoint.location.latitude}, ${feederPoint.location.longitude}`
+                                : 'No location data')}
                           </div>
                           {feederPoint.location?.latitude && feederPoint.location?.longitude && (
                             <div className="text-xs text-gray-500">
@@ -627,8 +701,8 @@ export default function FeederPointsPage() {
                 {feederPoints.length === 0
                   ? 'Feeder points will appear here when they are created in the mobile app.'
                   : searchTerm || statusFilter !== 'all' || assignmentFilter !== 'all'
-                  ? 'Try adjusting your search or filters.'
-                  : 'All feeder points are currently filtered out.'}
+                    ? 'Try adjusting your search or filters.'
+                    : 'All feeder points are currently filtered out.'}
               </p>
               {/* Creation options removed */}
             </div>
@@ -962,8 +1036,8 @@ function FeederPointReportModal({
                         {row.photos.length > 0
                           ? `${row.photos.length} attachment${row.photos.length > 1 ? 's' : ''}`
                           : row.hasData
-                          ? 'No attachments'
-                          : 'Pending'}
+                            ? 'No attachments'
+                            : 'Pending'}
                       </span>
                     </div>
 
