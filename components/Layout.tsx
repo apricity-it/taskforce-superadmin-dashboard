@@ -19,7 +19,8 @@ import {
   Sparkles,
   ClipboardCheck,
   UserPlus,
-  Database
+  Database,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -41,6 +42,7 @@ const navigation = [
   { name: 'PMC Employee Work', href: '/pmc-employee-action', icon: ClipboardCheck },
   { name: 'Complaints', href: '/complaints', icon: MessageSquare },
   { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Frequency Requests', href: '/frequency-requests', icon: RefreshCw },
 ]
 
 export default function Layout({ children }: LayoutProps) {
