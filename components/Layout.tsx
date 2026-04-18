@@ -1,26 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
-  LayoutDashboard,
-  Users,
-  UserCheck,
-  MessageSquare,
-  Shield,
-  Activity,
-  MapPin,
-  Settings,
-  LogOut,
-  Menu,
-  X,
-  Bell,
-  FileText,
-  BarChart3,
-  Sparkles,
-  ClipboardCheck,
-  UserPlus,
-  Database,
-  RefreshCw,
+  LayoutDashboard, Users, UserCheck, MessageSquare, Shield,
+  Activity, MapPin, Settings, LogOut, Menu, X, Bell,
+  FileText, BarChart3, Sparkles, ClipboardCheck, UserPlus,
+  Database, RefreshCw, ClipboardList, ChevronRight,
+  Search, Sun, Moon, Zap,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -28,106 +14,262 @@ interface LayoutProps {
   children: React.ReactNode
 }
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Master', href: '/master', icon: Database },
-  { name: 'Users', href: '/users', icon: Users },
-  { name: 'Access Requests', href: '/access-requests', icon: UserCheck },
-  { name: 'Feeder Points', href: '/feeder-points', icon: Activity },
-  { name: 'Feeder Point Request List', href: '/feeder-point-requests', icon: MapPin },
-  { name: 'Daily Reports', href: '/daily-reports', icon: FileText },
-  { name: 'Employee Tracker', href: '/employee-tracker', icon: BarChart3 },
-  { name: 'Improvement Summary', href: '/improvement-summary', icon: Sparkles },
-  { name: 'PMC Employees', href: '/pmc-employees', icon: UserPlus },
-  { name: 'PMC Employee Work', href: '/pmc-employee-action', icon: ClipboardCheck },
-  { name: 'Complaints', href: '/complaints', icon: MessageSquare },
-  { name: 'Settings', href: '/settings', icon: Settings },
-  { name: 'Frequency Requests', href: '/frequency-requests', icon: RefreshCw },
+const allNavigation = [
+  { name: 'Dashboard',            href: '/',                       icon: LayoutDashboard, roles: ['superadmin', 'pmc_member', 'qc'] },
+  { name: 'Master',               href: '/master',                 icon: Database,        roles: ['superadmin'] },
+  { name: 'Users',                href: '/users',                  icon: Users,           roles: ['superadmin', 'qc'] },
+  { name: 'Access Requests',      href: '/access-requests',        icon: UserCheck,       roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Feeder Points',        href: '/feeder-points',          icon: Activity,        roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Feeder Point Requests',href: '/feeder-point-requests',  icon: MapPin,          roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Frequency Requests',   href: '/frequency-requests',     icon: RefreshCw,       roles: ['superadmin', 'qc'] },
+  { name: 'Daily Reports',        href: '/daily-reports',          icon: FileText,        roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Report Review',        href: '/report-review',          icon: ClipboardList,   roles: ['superadmin', 'qc'] },
+  { name: 'Employee Tracker',     href: '/employee-tracker',       icon: BarChart3,       roles: ['superadmin', 'qc'] },
+  { name: 'Improvement Summary',  href: '/improvement-summary',    icon: Sparkles,        roles: ['superadmin'] },
+  { name: 'PMC Employees',        href: '/pmc-employees',          icon: UserPlus,        roles: ['superadmin'] },
+  { name: 'PMC Employee Work',    href: '/pmc-employee-action',    icon: ClipboardCheck,  roles: ['superadmin', 'pmc_member'] },
+  { name: 'Complaints',           href: '/complaints',             icon: MessageSquare,   roles: ['superadmin'] },
+  { name: 'Settings',             href: '/settings',               icon: Settings,        roles: ['superadmin'] },
 ]
 
-export default function Layout({ children }: LayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const router = useRouter()
-  const { user, logout } = useAuth()
+// QC gets its own dashboard route
+const qcDashboardOverride: Record<string, string> = {
+  '/': '/qc/dashboard',
+}
 
-  const navigationForRole = navigation.filter(item => {
-    if (
-      user?.role === 'pmc_member' &&
-      ['/employee-tracker', '/users', '/complaints', '/settings'].includes(item.href)
-    ) {
-      return false
-    }
-    return true
-  })
+const roleLabels: Record<string, { label: string; color: string }> = {
+  superadmin: { label: 'Super Admin', color: 'from-violet-500 to-purple-600' },
+  qc:         { label: 'QC Panel',    color: 'from-teal-500 to-emerald-600' },
+  pmc_member: { label: 'PMC Member',  color: 'from-blue-500 to-indigo-600' },
+}
+
+export default function Layout({ children }: LayoutProps) {
+  const [sidebarOpen, setSidebarOpen]     = useState(false)   // mobile drawer
+  const [sidebarExpanded, setSidebarExpanded] = useState(false) // desktop hover expand
+  const [dark, setDark]                   = useState(false)
+  const router   = useRouter()
+  const { user, logout } = useAuth()
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+ const roleMap: Record<string, string> = {
+  admin: 'superadmin',
+  superadmin: 'superadmin',
+  qc: 'qc',
+  pmc_member: 'pmc_member',
+}
+
+const role = roleMap[user?.role?.toLowerCase?.()] || 'superadmin'
+
+  const navigationItems = allNavigation
+    .filter(item => item.roles.includes(role))
+    .map(item => ({
+      ...item,
+      href: role === 'qc' && qcDashboardOverride[item.href]
+        ? qcDashboardOverride[item.href]
+        : item.href,
+    }))
 
   const handleLogout = async () => {
     await logout()
     router.push('/login')
   }
 
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [router.pathname])
+
+  const handleSidebarMouseEnter = () => {
+    hoverTimerRef.current = setTimeout(() => setSidebarExpanded(true), 80)
+  }
+  const handleSidebarMouseLeave = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    setSidebarExpanded(false)
+  }
+
+  const roleInfo = roleLabels[role] ?? roleLabels['superadmin']
+  const initials = user?.name
+    ? user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+    : 'U'
+
+const theme: Record<string, {
+  activeBg: string
+  activeText: string
+  icon: string
+  indicator: string
+}> = {
+  superadmin: {
+    activeBg: 'from-violet-500/10 to-purple-500/5',
+    activeText: 'text-violet-700',
+    icon: 'text-violet-600',
+    indicator: 'from-violet-500 to-purple-500'
+  },
+  qc: {
+    activeBg: 'from-teal-500/10 to-emerald-500/5',
+    activeText: 'text-teal-700',
+    icon: 'text-teal-600',
+    indicator: 'from-teal-500 to-emerald-500'
+  },
+  pmc_member: {
+    activeBg: 'from-blue-500/10 to-indigo-500/5',
+    activeText: 'text-blue-700',
+    icon: 'text-blue-600',
+    indicator: 'from-blue-500 to-indigo-500'
+  }
+}
+
+const currentTheme = theme[role] || theme['superadmin']
+
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
-      {/* Mobile sidebar */}
-      <div className={`fixed inset-0 z-50 lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`}>
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 transition-opacity" onClick={() => setSidebarOpen(false)} />
-        <div className="relative flex-1 flex flex-col max-w-xs w-full bg-white shadow-xl">
-          <div className="absolute top-0 right-0 -mr-12 pt-2">
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white bg-gray-600 hover:bg-gray-700 transition-colors"
-            >
-              <X className="h-6 w-6 text-white" />
-            </button>
-          </div>
-          <SidebarContent currentPath={router.pathname} navigationItems={navigationForRole} />
-        </div>
-      </div>
+    <div className={`h-screen flex overflow-hidden bg-[#f4f6fb] font-sans ${dark ? 'dark' : ''}`}>
 
-      {/* Desktop sidebar */}
-      <div className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0">
-        <SidebarContent currentPath={router.pathname} navigationItems={navigationForRole} />
-      </div>
+      {/* ── MOBILE OVERLAY ── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-gray-900/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-      {/* Main content */}
-      <div className="lg:pl-64 flex flex-col flex-1 min-h-0">
-        {/* Top navigation */}
-        <div className="sticky top-0 z-10 flex-shrink-0 flex h-16 bg-white shadow-lg">
+      {/* ── MOBILE DRAWER ── */}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-72 flex flex-col
+          bg-white border-r border-gray-100 shadow-2xl
+          transform transition-transform duration-300 ease-out
+          lg:hidden
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        <MobileSidebarContent
+          currentPath={router.pathname}
+          items={navigationItems}
+          user={user}
+          roleInfo={roleInfo}
+          initials={initials}
+          onClose={() => setSidebarOpen(false)}
+          onLogout={handleLogout}
+          currentTheme={currentTheme}
+        />
+      </aside>
+
+      {/* ── DESKTOP SIDEBAR (icon-only → hover expand) ── */}
+      <aside
+        onMouseEnter={handleSidebarMouseEnter}
+        onMouseLeave={handleSidebarMouseLeave}
+        className={`
+          hidden lg:flex flex-col fixed inset-y-0 left-0 z-30
+          bg-white border-r border-gray-100
+          shadow-[4px_0_24px_rgba(0,0,0,0.06)]
+          transition-all duration-300 ease-in-out
+          ${sidebarExpanded ? 'w-64' : 'w-[70px]'}
+        `}
+      >
+        <DesktopSidebarContent
+          currentPath={router.pathname}
+          items={navigationItems}
+          user={user}
+          roleInfo={roleInfo}
+          initials={initials}
+          expanded={sidebarExpanded}
+          onLogout={handleLogout}
+          currentTheme={currentTheme}
+        />
+      </aside>
+
+      {/* ── MAIN AREA ── */}
+     <div
+  className={`
+    flex flex-col flex-1 min-w-0 min-h-0
+    transition-all duration-300 ease-in-out
+    ${sidebarExpanded ? 'lg:pl-64' : 'lg:pl-[70px]'}
+  `}
+>
+        {/* ── TOP BAR ── */}
+        <header className="sticky top-0 z-20 flex items-center h-16 px-4 sm:px-6
+          bg-white/80 backdrop-blur-md border-b border-gray-100
+          shadow-[0_1px_12px_rgba(0,0,0,0.06)]">
+
+          {/* Hamburger (mobile) */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="px-4 border-r border-gray-200 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 lg:hidden hover:bg-gray-50 transition-colors"
+            className="lg:hidden mr-3 p-2 rounded-xl text-gray-500 hover:bg-gray-100 
+              active:scale-95 transition-all"
           >
-            <Menu className="h-6 w-6" />
+            <Menu className="w-5 h-5" />
           </button>
 
-          <div className="flex-1 px-4 sm:px-6 flex justify-between items-center">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">
-                Taskforce Command Center
-              </h1>
-            </div>
-
-            <div className="ml-4 flex items-center space-x-2 sm:space-x-4">
-              <button className="p-2 text-gray-400 hover:text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
-                <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
-              </button>
-
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-1 sm:space-x-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
-              >
-                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="hidden sm:inline">Logout</span>
-              </button>
-            </div>
+          {/* Page title / breadcrumb */}
+          <div className="flex-1 min-w-0">
+           <PageTitle path={router.pathname} items={navigationItems} currentTheme={currentTheme} />
           </div>
-        </div>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="py-4 sm:py-6">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              {children}
+          {/* Right actions */}
+          <div className="flex items-center gap-1 sm:gap-2 ml-4">
+
+            {/* Search */}
+            <button className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl
+              bg-gray-50 border border-gray-200 text-gray-400 hover:border-gray-300
+              hover:bg-gray-100 transition-all text-sm w-40 lg:w-52">
+              <Search className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-xs truncate">Search…</span>
+              <kbd className="ml-auto text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-md font-mono">⌘K</kbd>
+            </button>
+
+            {/* Dark mode */}
+            <button
+              onClick={() => setDark(!dark)}
+              className="p-2.5 rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-700 
+                transition-all active:scale-95"
+            >
+              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            {/* Notifications */}
+            <button className="relative p-2.5 rounded-xl text-gray-500 hover:bg-gray-100 
+              hover:text-gray-700 transition-all active:scale-95">
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full
+                ring-2 ring-white animate-pulse" />
+            </button>
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
+            {/* User pill */}
+            <div className="flex items-center gap-2.5 pl-1 pr-3 py-1.5 rounded-xl
+              bg-gray-50 border border-gray-200 cursor-pointer
+              hover:border-gray-300 hover:bg-gray-100 transition-all group">
+              <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${roleInfo.color}
+                flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                {initials}
+              </div>
+              <div className="hidden sm:block min-w-0">
+                <p className="text-xs font-semibold text-gray-800 truncate leading-none">
+                  {user?.name ?? 'User'}
+                </p>
+                <p className="text-[10px] text-gray-400 truncate leading-none mt-0.5">
+                  {roleInfo.label}
+                </p>
+              </div>
             </div>
+
+            {/* Logout */}
+            <button
+              onClick={handleLogout}
+              className="p-2.5 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-500
+                transition-all active:scale-95"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* ── PAGE CONTENT ── */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {children}
           </div>
         </main>
       </div>
@@ -135,34 +277,256 @@ export default function Layout({ children }: LayoutProps) {
   )
 }
 
-function SidebarContent({ currentPath, navigationItems }: { currentPath: string; navigationItems: typeof navigation }) {
+// ─── Desktop Sidebar ────────────────────────────────────────────────────────
+
+function DesktopSidebarContent({
+  currentPath, items, user, roleInfo, initials, expanded, onLogout, currentTheme
+}: {
+  currentPath: string
+  items: typeof allNavigation
+  user: any
+  roleInfo: { label: string; color: string }
+  initials: string
+  expanded: boolean
+  onLogout: () => void
+  currentTheme: {
+    activeBg: string
+    activeText: string
+    icon: string
+    indicator: string
+  }
+}) {
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white border-r border-gray-200">
-      <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
-        <div className="flex items-center flex-shrink-0 px-4">
-          <div className="h-8 w-8 bg-primary-600 rounded-lg flex items-center justify-center">
-            <Shield className="h-5 w-5 text-white" />
-          </div>
-          <span className="ml-2 text-xl font-semibold text-gray-900">SuperAdmin</span>
+    <div className="flex flex-col h-full">
+      {/* Logo */}
+      <div className={`flex items-center h-16 px-4 flex-shrink-0 border-b border-gray-100
+        overflow-hidden transition-all duration-300`}>
+        <div className={`flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br ${roleInfo.color}
+          flex items-center justify-center shadow-lg`}>
+          <Zap className="w-4.5 h-4.5 text-white w-[18px] h-[18px]" />
         </div>
-        
-        <nav className="mt-8 flex-1 px-2 space-y-1">
-          {navigationItems.map((item) => {
-            const isActive = currentPath === item.href
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`sidebar-link ${
-                  isActive ? 'sidebar-link-active' : 'sidebar-link-inactive'
-                }`}
-              >
-                <item.icon className="mr-3 h-5 w-5" />
+        <div className={`ml-3 overflow-hidden transition-all duration-300
+          ${expanded ? 'w-40 opacity-100' : 'w-0 opacity-0'}`}>
+          <p className="text-sm font-bold text-gray-900 whitespace-nowrap">Taskforce</p>
+          <p className="text-[10px] text-gray-400 whitespace-nowrap">{roleInfo.label}</p>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-2 space-y-0.5">
+        {items.map((item) => {
+          const isActive = currentPath === item.href ||
+            (item.href !== '/' && item.href !== '/qc/dashboard' && currentPath.startsWith(item.href))
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={!expanded ? item.name : undefined}
+              className={`
+                relative flex items-center h-10 rounded-xl overflow-hidden
+                transition-all duration-150 group
+                ${isActive
+  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText}`
+  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+}
+              `}
+            >
+              {/* Active indicator */}
+              {isActive && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 
+                  bg-gradient-to-b ${currentTheme.indicator} rounded-r-full" />
+              )}
+
+              {/* Icon */}
+              <span className={`flex-shrink-0 flex items-center justify-center w-10 h-10
+                ${isActive ? currentTheme.icon : 'text-gray-400 group-hover:text-gray-700'}`}>
+                <item.icon className="w-[18px] h-[18px]" />
+              </span>
+
+              {/* Label */}
+              <span className={`text-sm font-medium whitespace-nowrap overflow-hidden
+                transition-all duration-300
+                ${expanded ? 'max-w-[160px] opacity-100 ml-0' : 'max-w-0 opacity-0'}`}>
                 {item.name}
-              </Link>
-            )
-          })}
-        </nav>
+              </span>
+
+              {/* Active chevron */}
+              {isActive && expanded && (
+                <ChevronRight className="ml-auto mr-3 w-3 h-3 ${currentTheme.icon} flex-shrink-0" />
+              )}
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* User footer */}
+      <div className={`flex-shrink-0 border-t border-gray-100 p-3 overflow-hidden`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br ${roleInfo.color}
+            flex items-center justify-center text-white text-xs font-bold`}>
+            {initials}
+          </div>
+          <div className={`min-w-0 overflow-hidden transition-all duration-300
+            ${expanded ? 'w-28 opacity-100' : 'w-0 opacity-0'}`}>
+            <p className="text-xs font-semibold text-gray-800 truncate whitespace-nowrap">
+              {user?.name ?? 'User'}
+            </p>
+            <p className="text-[10px] text-gray-400 truncate whitespace-nowrap">{roleInfo.label}</p>
+          </div>
+          <button
+            onClick={onLogout}
+            title="Logout"
+            className={`flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:bg-red-50 
+              hover:text-red-500 transition-all ml-auto
+              ${expanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Mobile Sidebar ───────────────────────────────────────────────────────────
+
+function MobileSidebarContent({
+  currentPath, items, user, roleInfo, initials, onClose, onLogout, currentTheme
+}: {
+  currentPath: string
+  items: typeof allNavigation
+  user: any
+  roleInfo: { label: string; color: string }
+  initials: string
+  onClose: () => void
+  onLogout: () => void
+  currentTheme: {
+    activeBg: string
+    activeText: string
+    icon: string
+    indicator: string
+  }
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between h-16 px-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${roleInfo.color}
+            flex items-center justify-center shadow-lg`}>
+            <Zap className="w-[18px] h-[18px] text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">Taskforce</p>
+            <p className="text-[10px] text-gray-400">{roleInfo.label}</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* User card */}
+      <div className="mx-3 mt-4 p-3 rounded-2xl bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${roleInfo.color}
+            flex items-center justify-center text-white text-sm font-bold shadow-md`}>
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-800 truncate">{user?.name ?? 'User'}</p>
+            <span className={`inline-block text-[10px] font-medium text-white px-2 py-0.5 
+              rounded-full bg-gradient-to-r ${roleInfo.color} mt-0.5`}>
+              {roleInfo.label}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+        {items.map((item) => {
+          const isActive = currentPath === item.href ||
+            (item.href !== '/' && item.href !== '/qc/dashboard' && currentPath.startsWith(item.href))
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onClose}
+              className={`
+                flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+                transition-all duration-150
+                ${isActive
+  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText} shadow-sm`
+  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+}
+              `}
+            >
+              <span className={`flex-shrink-0 ${isActive ? currentTheme.icon : 'text-gray-400'}`}>
+                <item.icon className="w-4.5 h-4.5 w-[18px] h-[18px]" />
+              </span>
+              <span className="flex-1 truncate">{item.name}</span>
+              {isActive && <ChevronRight className="w-3.5 h-3.5 ${currentTheme.icon} flex-shrink-0" />}
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* Logout */}
+      <div className="flex-shrink-0 p-3 border-t border-gray-100">
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            text-red-500 hover:bg-red-50 transition-all"
+        >
+          <LogOut className="w-[18px] h-[18px]" />
+          Logout
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Page Title ───────────────────────────────────────────────────────────────
+
+function PageTitle({
+  path,
+  items,
+  currentTheme
+}: {
+  path: string
+  items: typeof allNavigation
+  currentTheme: {
+    activeBg: string
+    activeText: string
+    icon: string
+    indicator: string
+  }
+}) {
+  const current = items.find(item =>
+    item.href !== '/' && item.href !== '/qc/dashboard'
+      ? path.startsWith(item.href)
+      : path === item.href
+  )
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      {current && (
+        <div className={`hidden sm:flex w-7 h-7 rounded-lg bg-gradient-to-br ${currentTheme.activeBg}
+  items-center justify-center flex-shrink-0`}>
+  <current.icon className={`w-3.5 h-3.5 ${currentTheme.icon}`} />
+</div>
+      )}
+      <div className="min-w-0">
+        <h1 className="text-sm sm:text-base font-semibold text-gray-900 truncate leading-none">
+          {current?.name ?? 'Taskforce Command Center'}
+        </h1>
+        <p className="text-[10px] text-gray-400 truncate leading-none mt-0.5 hidden sm:block">
+          Taskforce Command Center
+        </p>
       </div>
     </div>
   )
