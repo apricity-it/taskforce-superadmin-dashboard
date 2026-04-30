@@ -8,6 +8,9 @@ export interface DashboardStats {
   totalComplaints: number;
   totalInspections: number;
   totalFeederPoints: number;
+  totalChronicPoints: number;
+  totalEliminatedPoints: number;
+  totalShiftReports: number;
   totalTeams: number;
   totalIPRecords: number;
   // Role-based statistics
@@ -67,6 +70,7 @@ export interface ComplianceReport {
   tripNumber: 1 | 2 | 3; // Which trip of the day (1st, 2nd, or 3rd)
   tripDate: string; // Date in YYYY-MM-DD format for daily tracking
   dailyTripId: string; // Unique identifier for the day's trips (userId_feederPointId_date)
+  feederPointType?: 'feeder' | 'chronic';
   aiAnalysis?: string;
   ministryReport?: string;
   priority?: 'low' | 'medium' | 'high' | 'urgent';
@@ -167,8 +171,8 @@ export interface FeederPoint {
   name: string;
   assignedUserId?: string;
   assignedTeamId?: string;
-  kothiId?: string;     
-  kothiName?: string;    
+  kothiId?: string;
+  kothiName?: string;
   isEliminated?: boolean
   status: 'active' | 'maintenance' | 'inactive';
   location: {
@@ -178,6 +182,10 @@ export interface FeederPoint {
   };
   priority: 'high' | 'medium' | 'low';
   lastInspection?: any; // Firestore timestamp
+  type?: 'feeder' | 'chronic'
+  convertedToChronicAt?: any
+  convertedToChronicBy?: string
+
 }
 
 export interface FeederPointRequest {
@@ -214,12 +222,44 @@ export interface FeederPointRequest {
   updatedAt?: any;
 }
 
+export interface ShiftSlot {
+  slotNumber: number
+  label: string
+  startHour: number
+  startMinute: number
+  endHour: number
+  endMinute: number
+  status: 'pending' | 'active' | 'completed' | 'missed' | 'late'
+  photoUrl?: string
+  timestamp?: any
+  location?: {
+    latitude: number
+    longitude: number
+  }
+}
+
+export interface ShiftReport {
+  id: string
+  userId: string
+  userName: string
+  feederPointId: string
+  feederPointName: string
+  shiftType: '7PM-3AM' | '3AM-11AM' | '12:30PM-8:30PM'
+  shiftDate: string
+  slots: ShiftSlot[]
+  startedAt: any
+  completedAt?: any
+  status: 'in_progress' | 'completed'
+  createdAt: any
+  updatedAt: any
+}
+
 export interface Zone {
   id: string;
   name: string;
   createdAt?: any;
 }
- 
+
 export interface Ward {
   id: string;
   name: string;
@@ -227,7 +267,7 @@ export interface Ward {
   zoneName?: string;
   createdAt?: any;
 }
- 
+
 export interface Kothi {
   id: string;
   name: string;
@@ -235,7 +275,7 @@ export interface Kothi {
   wardName?: string;
   createdAt?: any;
 }
- 
+
 export interface Assignment {
   id: string;
   zoneId?: string;
@@ -250,7 +290,7 @@ export interface Assignment {
   userName?: string;
   createdAt?: any;
 }
- 
+
 
 export class DataService {
   private static coerceDate(value: any): Date | null {
@@ -281,7 +321,8 @@ export class DataService {
         inspectionsSnapshot,
         feederPointsSnapshot,
         teamsSnapshot,
-        ipRecordsSnapshot
+        ipRecordsSnapshot,
+        shiftReportsSnapshot
       ] = await Promise.all([
         getDocs(collection(db, 'approvedUsers')),
         getDocs(query(collection(db, 'approvedUsers'), where('isActive', '==', true))),
@@ -290,12 +331,36 @@ export class DataService {
         getDocs(collection(db, 'inspections')),
         getDocs(collection(db, 'feederPoints')),
         getDocs(collection(db, 'teams')),
-        getDocs(collection(db, 'ipRecords'))
+        getDocs(collection(db, 'ipRecords')),
+        getDocs(collection(db, 'shiftReports'))
       ]);
 
-      // Calculate role-based statistics
-      const allUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      const activeUsers = activeUsersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      const feederPoints = feederPointsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as FeederPoint[];
+
+      const feederOnly = feederPoints.filter(
+        fp => (fp.type ?? 'feeder') === 'feeder'
+      );
+
+      const chronicOnly = feederPoints.filter(
+        fp => fp.type === 'chronic'
+      );
+
+      const eliminatedPoints = feederPoints.filter(
+        fp => fp.isEliminated === true
+      );
+
+      const allUsers = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as User));
+
+      const activeUsers = activeUsersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as User));
 
       const adminUsers = allUsers.filter(user => user.role === 'admin').length;
       const taskForceUsers = allUsers.filter(user => user.role === 'task_force_team').length;
@@ -312,21 +377,23 @@ export class DataService {
         pendingRequests: pendingRequestsSnapshot.size,
         totalComplaints: complaintsSnapshot.size,
         totalInspections: inspectionsSnapshot.size,
-        totalFeederPoints: feederPointsSnapshot.size,
+        totalFeederPoints: feederOnly.length,
+        totalChronicPoints: chronicOnly.length,
+        totalEliminatedPoints: eliminatedPoints.length,
+        totalShiftReports: shiftReportsSnapshot.size,
         totalTeams: teamsSnapshot.size,
         totalIPRecords: ipRecordsSnapshot.size,
-        // Role-based statistics
         adminUsers,
         taskForceUsers,
         commissionerUsers,
         inactiveUsers,
-        // Additional role-based metrics
         activeAdmins,
         activeTaskForce,
         activeCommissioners
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
+
       return {
         totalUsers: 0,
         activeUsers: 0,
@@ -334,6 +401,9 @@ export class DataService {
         totalComplaints: 0,
         totalInspections: 0,
         totalFeederPoints: 0,
+        totalChronicPoints: 0,
+        totalEliminatedPoints: 0,
+        totalShiftReports: 0,
         totalTeams: 0,
         totalIPRecords: 0,
         adminUsers: 0,
@@ -346,7 +416,6 @@ export class DataService {
       };
     }
   }
-
   static async getEmployeePerformance(options?: {
     role?: string;
     startDate?: Date;
@@ -952,13 +1021,78 @@ export class DataService {
   static async getAllFeederPoints(): Promise<FeederPoint[]> {
     const q = query(collection(db, 'feederPoints'));
     const snapshot = await getDocs(q);
-    const points = snapshot.docs.map(doc => ({
+
+    return snapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
-    } as FeederPoint));
-    return points;
+      ...doc.data(),
+      type: (doc.data().type ?? 'feeder') as 'feeder' | 'chronic'
+    })) as FeederPoint[];
   }
 
+  static async getFeederPointsOnly(): Promise<FeederPoint[]> {
+    const points = await this.getAllFeederPoints();
+
+    return points.filter(
+      point => (point.type ?? 'feeder') === 'feeder'
+    );
+  }
+
+  static async getChronicPoints(): Promise<FeederPoint[]> {
+    const points = await this.getAllFeederPoints();
+
+    return points.filter(
+      point => point.type === 'chronic'
+    );
+  }
+
+  static async getShiftReports(): Promise<ShiftReport[]> {
+    const q = query(
+      collection(db, 'shiftReports'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as ShiftReport[];
+  }
+
+  static async getShiftReportsByPoint(
+    feederPointId: string
+  ): Promise<ShiftReport[]> {
+    const q = query(
+      collection(db, 'shiftReports'),
+      where('feederPointId', '==', feederPointId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as ShiftReport[];
+  }
+
+  static async getChronicComplianceReportsByPoint(
+    feederPointId: string
+  ): Promise<ComplianceReport[]> {
+    const q = query(
+      collection(db, 'complianceReports'),
+      where('feederPointId', '==', feederPointId)
+    );
+
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }) as ComplianceReport)
+      .filter(report => (report.feederPointType ?? 'feeder') === 'chronic');
+  }
   // Get all teams
   static onTeamsChange(callback: (teams: Team[]) => void) {
     const q = query(collection(db, 'teams'));
@@ -1055,67 +1189,67 @@ export class DataService {
   //     throw error;
   //   }
   // }
-static getRolePermissions(role: string): string[] {
-  switch (role) {
-    case 'task_force_team':
-      return ['view_reports', 'create_reports'];
-    case 'commissioner':
-      return ['view_reports', 'approve_reports'];
-    case 'admin':
-      return ['manage_users', 'system_settings'];
-    default:
-      return [];
-  }
-}
-  static async approveAccessRequest(request: AccessRequest): Promise<void> {
-  try {
-    const userId = request.email.toLowerCase();
-
-    const userRef = doc(db, 'approvedUsers', userId);
-    const existingUser = await getDoc(userRef);
-
-    if (existingUser.exists()) {
-      console.log('⚠️ User already exists');
-      return;
+  static getRolePermissions(role: string): string[] {
+    switch (role) {
+      case 'task_force_team':
+        return ['view_reports', 'create_reports'];
+      case 'commissioner':
+        return ['view_reports', 'approve_reports'];
+      case 'admin':
+        return ['manage_users', 'system_settings'];
+      default:
+        return [];
     }
-
-    // ✅ FIXED LINE
-    const permissions = DataService.getRolePermissions(request.requestedRole);
-
-    // ✅ Step 1: Create user FIRST
-    await setDoc(userRef, {
-      id: userId,
-      name: request.name,
-      email: request.email.toLowerCase(), // 🔥 normalize
-      phone: request.phone,
-      role: request.requestedRole,
-      organization: request.organization || null,
-      department: request.department || null,
-      permissions,
-      isActive: true,
-      isDeleted: false,
-      accountStatus: 'active',
-      approvedAt: serverTimestamp(),
-      approvedBy: 'AdminUserPlaceholder',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    // ✅ Step 2: Update request
-    await updateDoc(doc(db, 'accessRequests', request.id), {
-      status: 'approved',
-      reviewedAt: serverTimestamp(),
-      reviewedBy: 'AdminUserPlaceholder',
-      updatedAt: serverTimestamp()
-    });
-
-    console.log('✅ User created & request approved:', request.email);
-
-  } catch (error) {
-    console.error('❌ Error approving access request:', error);
-    throw error;
   }
-}
+  static async approveAccessRequest(request: AccessRequest): Promise<void> {
+    try {
+      const userId = request.email.toLowerCase();
+
+      const userRef = doc(db, 'approvedUsers', userId);
+      const existingUser = await getDoc(userRef);
+
+      if (existingUser.exists()) {
+        console.log('⚠️ User already exists');
+        return;
+      }
+
+      // ✅ FIXED LINE
+      const permissions = DataService.getRolePermissions(request.requestedRole);
+
+      // ✅ Step 1: Create user FIRST
+      await setDoc(userRef, {
+        id: userId,
+        name: request.name,
+        email: request.email.toLowerCase(), // 🔥 normalize
+        phone: request.phone,
+        role: request.requestedRole,
+        organization: request.organization || null,
+        department: request.department || null,
+        permissions,
+        isActive: true,
+        isDeleted: false,
+        accountStatus: 'active',
+        approvedAt: serverTimestamp(),
+        approvedBy: 'AdminUserPlaceholder',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // ✅ Step 2: Update request
+      await updateDoc(doc(db, 'accessRequests', request.id), {
+        status: 'approved',
+        reviewedAt: serverTimestamp(),
+        reviewedBy: 'AdminUserPlaceholder',
+        updatedAt: serverTimestamp()
+      });
+
+      console.log('✅ User created & request approved:', request.email);
+
+    } catch (error) {
+      console.error('❌ Error approving access request:', error);
+      throw error;
+    }
+  }
 
   static async rejectAccessRequest(requestId: string): Promise<void> {
     try {
@@ -1214,19 +1348,19 @@ static getRolePermissions(role: string): string[] {
       callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Zone)));
     });
   }
- 
+
   static async createZone(data: Omit<Zone, 'id'>): Promise<void> {
     await setDoc(doc(collection(db, 'zones')), { ...data, createdAt: serverTimestamp() });
   }
- 
+
   static async updateZone(id: string, data: Partial<Zone>): Promise<void> {
     await updateDoc(doc(db, 'zones', id), data);
   }
- 
+
   static async deleteZone(id: string): Promise<void> {
     await deleteDoc(doc(db, 'zones', id));
   }
- 
+
   // ── WARDS ──────────────────────────────────────────────────────────────────
   static onWardsChange(callback: (wards: Ward[]) => void) {
     const q = query(collection(db, 'wards'), orderBy('createdAt', 'desc'));
@@ -1234,19 +1368,19 @@ static getRolePermissions(role: string): string[] {
       callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ward)));
     });
   }
- 
+
   static async createWard(data: Omit<Ward, 'id'>): Promise<void> {
     await setDoc(doc(collection(db, 'wards')), { ...data, createdAt: serverTimestamp() });
   }
- 
+
   static async updateWard(id: string, data: Partial<Ward>): Promise<void> {
     await updateDoc(doc(db, 'wards', id), data);
   }
- 
+
   static async deleteWard(id: string): Promise<void> {
     await deleteDoc(doc(db, 'wards', id));
   }
- 
+
   // ── KOTHIS ─────────────────────────────────────────────────────────────────
   static onKothisChange(callback: (kothis: Kothi[]) => void) {
     const q = query(collection(db, 'kothis'), orderBy('createdAt', 'desc'));
@@ -1254,35 +1388,35 @@ static getRolePermissions(role: string): string[] {
       callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Kothi)));
     });
   }
- 
+
   static async createKothi(data: Omit<Kothi, 'id'>): Promise<void> {
     await setDoc(doc(collection(db, 'kothis')), { ...data, createdAt: serverTimestamp() });
   }
- 
+
   static async updateKothi(id: string, data: Partial<Kothi>): Promise<void> {
     await updateDoc(doc(db, 'kothis', id), data);
   }
- 
+
   static async deleteKothi(id: string): Promise<void> {
     await deleteDoc(doc(db, 'kothis', id));
   }
- 
+
   // ── ASSIGNMENTS ────────────────────────────────────────────────────────────
-   static onAssignmentsChange(callback: (assignments: Assignment[]) => void) {
+  static onAssignmentsChange(callback: (assignments: Assignment[]) => void) {
     const q = query(collection(db, 'assignments'), orderBy('createdAt', 'desc'));
     return onSnapshot(q, snapshot => {
       callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignment)));
     });
   }
- 
+
   static async createAssignment(data: Omit<Assignment, 'id'>): Promise<void> {
     await setDoc(doc(collection(db, 'assignments')), { ...data, createdAt: serverTimestamp() });
   }
- 
+
   static async updateAssignment(id: string, data: Partial<Assignment>): Promise<void> {
     await updateDoc(doc(db, 'assignments', id), data);
   }
- 
+
   static async deleteAssignment(id: string): Promise<void> {
     await deleteDoc(doc(db, 'assignments', id));
   }

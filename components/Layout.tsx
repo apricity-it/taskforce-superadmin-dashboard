@@ -15,21 +15,22 @@ interface LayoutProps {
 }
 
 const allNavigation = [
-  { name: 'Dashboard',            href: '/',                       icon: LayoutDashboard, roles: ['superadmin', 'pmc_member', 'qc'] },
-  { name: 'Master',               href: '/master',                 icon: Database,        roles: ['superadmin'] },
-  { name: 'Users',                href: '/users',                  icon: Users,           roles: ['superadmin', 'qc'] },
-  { name: 'Access Requests',      href: '/access-requests',        icon: UserCheck,       roles: ['superadmin', 'qc', 'pmc_member'] },
-  { name: 'Feeder Points',        href: '/feeder-points',          icon: Activity,        roles: ['superadmin', 'qc', 'pmc_member'] },
-  { name: 'Feeder Point Requests',href: '/feeder-point-requests',  icon: MapPin,          roles: ['superadmin', 'qc', 'pmc_member'] },
-  { name: 'Frequency Requests',   href: '/frequency-requests',     icon: RefreshCw,       roles: ['superadmin', 'qc'] },
-  { name: 'Daily Reports',        href: '/daily-reports',          icon: FileText,        roles: ['superadmin', 'qc', 'pmc_member'] },
-  { name: 'Report Review',        href: '/report-review',          icon: ClipboardList,   roles: ['superadmin', 'qc'] },
-  { name: 'Employee Tracker',     href: '/employee-tracker',       icon: BarChart3,       roles: ['superadmin', 'qc'] },
-  { name: 'Improvement Summary',  href: '/improvement-summary',    icon: Sparkles,        roles: ['superadmin'] },
-  { name: 'PMC Employees',        href: '/pmc-employees',          icon: UserPlus,        roles: ['superadmin'] },
-  { name: 'PMC Employee Work',    href: '/pmc-employee-action',    icon: ClipboardCheck,  roles: ['superadmin', 'pmc_member'] },
-  { name: 'Complaints',           href: '/complaints',             icon: MessageSquare,   roles: ['superadmin'] },
-  { name: 'Settings',             href: '/settings',               icon: Settings,        roles: ['superadmin'] },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['superadmin', 'pmc_member', 'qc'] },
+  { name: 'Master', href: '/master', icon: Database, roles: ['superadmin'] },
+  { name: 'Users', href: '/users', icon: Users, roles: ['superadmin', 'qc'] },
+  { name: 'Access Requests', href: '/access-requests', icon: UserCheck, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Feeder Points', href: '/feeder-points', icon: Activity, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Chronic Points', href: '/chronic-points', icon: Zap, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Feeder Point Requests', href: '/feeder-point-requests', icon: MapPin, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Frequency Requests', href: '/frequency-requests', icon: RefreshCw, roles: ['superadmin', 'qc'] },
+  { name: 'Daily Reports', href: '/daily-reports', icon: FileText, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Report Review', href: '/report-review', icon: ClipboardList, roles: ['superadmin', 'qc'] },
+  { name: 'Employee Tracker', href: '/employee-tracker', icon: BarChart3, roles: ['superadmin', 'qc'] },
+  { name: 'Improvement Summary', href: '/improvement-summary', icon: Sparkles, roles: ['superadmin'] },
+  { name: 'PMC Employees', href: '/pmc-employees', icon: UserPlus, roles: ['superadmin'] },
+  { name: 'PMC Employee Work', href: '/pmc-employee-action', icon: ClipboardCheck, roles: ['superadmin', 'pmc_member'] },
+  { name: 'Complaints', href: '/complaints', icon: MessageSquare, roles: ['superadmin'] },
+  { name: 'Settings', href: '/settings', icon: Settings, roles: ['superadmin'] },
 ]
 
 // QC gets its own dashboard route
@@ -39,26 +40,29 @@ const qcDashboardOverride: Record<string, string> = {
 
 const roleLabels: Record<string, { label: string; color: string }> = {
   superadmin: { label: 'Super Admin', color: 'from-violet-500 to-purple-600' },
-  qc:         { label: 'QC Panel',    color: 'from-teal-500 to-emerald-600' },
-  pmc_member: { label: 'PMC Member',  color: 'from-blue-500 to-indigo-600' },
+  qc: { label: 'QC Panel', color: 'from-teal-500 to-emerald-600' },
+  pmc_member: { label: 'PMC Member', color: 'from-blue-500 to-indigo-600' },
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const [sidebarOpen, setSidebarOpen]     = useState(false)   // mobile drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false)   // mobile drawer
   const [sidebarExpanded, setSidebarExpanded] = useState(false) // desktop hover expand
-  const [dark, setDark]                   = useState(false)
-  const router   = useRouter()
+  const [dark, setDark] = useState(false)
+  const router = useRouter()
   const { user, logout } = useAuth()
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
- const roleMap: Record<string, string> = {
-  admin: 'superadmin',
-  superadmin: 'superadmin',
-  qc: 'qc',
-  pmc_member: 'pmc_member',
-}
+  const roleMap: Record<string, string> = {
+    admin: 'superadmin',
+    superadmin: 'superadmin',
+    qc: 'qc',
+    pmc_member: 'pmc_member',
+  }
 
-const role = roleMap[user?.role?.toLowerCase?.()] || 'superadmin'
+  const normalizedUserRole =
+    typeof user?.role === 'string' ? user.role.toLowerCase() : ''
+
+  const role = roleMap[normalizedUserRole] || 'superadmin'
 
   const navigationItems = allNavigation
     .filter(item => item.roles.includes(role))
@@ -92,33 +96,33 @@ const role = roleMap[user?.role?.toLowerCase?.()] || 'superadmin'
     ? user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U'
 
-const theme: Record<string, {
-  activeBg: string
-  activeText: string
-  icon: string
-  indicator: string
-}> = {
-  superadmin: {
-    activeBg: 'from-violet-500/10 to-purple-500/5',
-    activeText: 'text-violet-700',
-    icon: 'text-violet-600',
-    indicator: 'from-violet-500 to-purple-500'
-  },
-  qc: {
-    activeBg: 'from-teal-500/10 to-emerald-500/5',
-    activeText: 'text-teal-700',
-    icon: 'text-teal-600',
-    indicator: 'from-teal-500 to-emerald-500'
-  },
-  pmc_member: {
-    activeBg: 'from-blue-500/10 to-indigo-500/5',
-    activeText: 'text-blue-700',
-    icon: 'text-blue-600',
-    indicator: 'from-blue-500 to-indigo-500'
+  const theme: Record<string, {
+    activeBg: string
+    activeText: string
+    icon: string
+    indicator: string
+  }> = {
+    superadmin: {
+      activeBg: 'from-violet-500/10 to-purple-500/5',
+      activeText: 'text-violet-700',
+      icon: 'text-violet-600',
+      indicator: 'from-violet-500 to-purple-500'
+    },
+    qc: {
+      activeBg: 'from-teal-500/10 to-emerald-500/5',
+      activeText: 'text-teal-700',
+      icon: 'text-teal-600',
+      indicator: 'from-teal-500 to-emerald-500'
+    },
+    pmc_member: {
+      activeBg: 'from-blue-500/10 to-indigo-500/5',
+      activeText: 'text-blue-700',
+      icon: 'text-blue-600',
+      indicator: 'from-blue-500 to-indigo-500'
+    }
   }
-}
 
-const currentTheme = theme[role] || theme['superadmin']
+  const currentTheme = theme[role] || theme['superadmin']
 
   return (
     <div className={`h-screen flex overflow-hidden bg-[#f4f6fb] font-sans ${dark ? 'dark' : ''}`}>
@@ -178,13 +182,13 @@ const currentTheme = theme[role] || theme['superadmin']
       </aside>
 
       {/* ── MAIN AREA ── */}
-     <div
-  className={`
+      <div
+        className={`
     flex flex-col flex-1 min-w-0 min-h-0
     transition-all duration-300 ease-in-out
     ${sidebarExpanded ? 'lg:pl-64' : 'lg:pl-[70px]'}
   `}
->
+      >
         {/* ── TOP BAR ── */}
         <header className="sticky top-0 z-20 flex items-center h-16 px-4 sm:px-6
           bg-white/80 backdrop-blur-md border-b border-gray-100
@@ -201,7 +205,7 @@ const currentTheme = theme[role] || theme['superadmin']
 
           {/* Page title / breadcrumb */}
           <div className="flex-1 min-w-0">
-           <PageTitle path={router.pathname} items={navigationItems} currentTheme={currentTheme} />
+            <PageTitle path={router.pathname} items={navigationItems} currentTheme={currentTheme} />
           </div>
 
           {/* Right actions */}
@@ -326,9 +330,9 @@ function DesktopSidebarContent({
                 relative flex items-center h-10 rounded-xl overflow-hidden
                 transition-all duration-150 group
                 ${isActive
-  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText}`
-  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
-}
+                  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText}`
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+                }
               `}
             >
               {/* Active indicator */}
@@ -460,9 +464,9 @@ function MobileSidebarContent({
                 flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
                 transition-all duration-150
                 ${isActive
-  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText} shadow-sm`
-  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-}
+                  ? `bg-gradient-to-r ${currentTheme.activeBg} ${currentTheme.activeText} shadow-sm`
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }
               `}
             >
               <span className={`flex-shrink-0 ${isActive ? currentTheme.icon : 'text-gray-400'}`}>
@@ -517,8 +521,8 @@ function PageTitle({
       {current && (
         <div className={`hidden sm:flex w-7 h-7 rounded-lg bg-gradient-to-br ${currentTheme.activeBg}
   items-center justify-center flex-shrink-0`}>
-  <current.icon className={`w-3.5 h-3.5 ${currentTheme.icon}`} />
-</div>
+          <current.icon className={`w-3.5 h-3.5 ${currentTheme.icon}`} />
+        </div>
       )}
       <div className="min-w-0">
         <h1 className="text-sm sm:text-base font-semibold text-gray-900 truncate leading-none">

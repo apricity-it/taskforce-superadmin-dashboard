@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Map, Building2, Home, ClipboardList, Plus, Pencil, Trash2, X, Loader2, AlertCircle } from 'lucide-react'
+import { Map, Building2, Home, ClipboardList, Plus, Pencil, Trash2, X, Loader2, AlertCircle, ChevronDown, GitBranch } from 'lucide-react'
 import { DataService, Zone, Ward, Kothi, Assignment } from '@/lib/dataService'
 
 const tabs = [
   { name: 'Zones', icon: Map },
   { name: 'Wards', icon: Building2 },
   { name: 'Kothis', icon: Home },
+  { name: 'Mapping', icon: GitBranch },
   { name: 'Assignment', icon: ClipboardList },
 ]
 
@@ -484,6 +485,273 @@ function KothisTab() {
     </div>
   )
 }
+// ─── MAPPING TAB ──────────────────────────────────────────────────────────────
+function MappingTab() {
+  const [zones, setZones] = useState<Zone[]>([])
+  const [wards, setWards] = useState<Ward[]>([])
+  const [kothis, setKothis] = useState<Kothi[]>([])
+  const [feederPoints, setFeederPoints] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<{ zones: Record<string, boolean>; wards: Record<string, boolean>; kothis: Record<string, boolean> }>
+    ({ zones: {}, wards: {}, kothis: {} })
+  const [search, setSearch] = useState('')
+  const [showModal, setShowModal] = useState(false)
+  const [formZoneId, setFormZoneId] = useState('')
+  const [formWardId, setFormWardId] = useState('')
+  const [formKothiId, setFormKothiId] = useState('')
+  const [formFeederPointId, setFormFeederPointId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    const unsubZones = DataService.onZonesChange(setZones)
+    const unsubWards = DataService.onWardsChange(setWards)
+    const unsubKothis = DataService.onKothisChange(setKothis)
+    const unsubFPs = DataService.onFeederPointsChange((data) => { setFeederPoints(data); setLoading(false) })
+    return () => { unsubZones(); unsubWards(); unsubKothis(); unsubFPs() }
+  }, [])
+
+  const toggle = (type: 'zones' | 'wards' | 'kothis', id: string) =>
+    setExpanded(prev => ({ ...prev, [type]: { ...prev[type], [id]: !prev[type][id] } }))
+
+  const resetForm = () => { setFormZoneId(''); setFormWardId(''); setFormKothiId(''); setFormFeederPointId('') }
+
+  const filteredZones = search
+    ? zones.filter(z => {
+      const q = search.toLowerCase()
+      const zWards = wards.filter(w => w.zoneId === z.id)
+      const zKothis = kothis.filter(k => zWards.some(w => w.id === k.wardId))
+      const zFPs = feederPoints.filter(f => zKothis.some(k => k.id === f.kothiId))
+      return z.name.toLowerCase().includes(q) ||
+        zWards.some(w => w.name.toLowerCase().includes(q)) ||
+        zKothis.some(k => k.name.toLowerCase().includes(q)) ||
+        zFPs.some(f => f.name.toLowerCase().includes(q))
+    })
+    : zones
+
+  const mappedCount = feederPoints.filter(f => f.kothiId).length
+  const unmappedCount = feederPoints.length - mappedCount
+
+  const filtWards = wards.filter(w => w.zoneId === formZoneId)
+  const filtKothis = kothis.filter(k => k.wardId === formWardId)
+  const filtFPs = feederPoints.filter(f => formKothiId ? (f.kothiId === formKothiId || !f.kothiId) : !f.kothiId)
+
+  const handleSave = async () => {
+    if (!formZoneId || !formWardId || !formKothiId || !formFeederPointId) return
+    setSaving(true)
+    try {
+      const kothiName = kothis.find(k => k.id === formKothiId)?.name ?? ''
+      await DataService.updateFeederPoint(formFeederPointId, { kothiId: formKothiId, kothiName })
+      setShowModal(false); resetForm()
+    } catch { alert('Failed to save mapping') }
+    setSaving(false)
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try { await DataService.updateFeederPoint(deleteTarget.id, { kothiId: undefined, kothiName: undefined }) }
+    catch { alert('Failed to remove mapping') }
+    setDeleting(false); setDeleteTarget(null)
+  }
+
+  const selectCls = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+
+  return (
+    <div>
+      {/* ── Stats ── */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="bg-gray-50 rounded-lg p-3">
+          <p className="text-xs text-gray-500 mb-1">Total feeder points</p>
+          <p className="text-2xl font-semibold">{feederPoints.length}</p>
+        </div>
+        <div className="bg-green-50 rounded-lg p-3">
+          <p className="text-xs text-green-700 mb-1">Mapped</p>
+          <p className="text-2xl font-semibold text-green-700">{mappedCount}</p>
+        </div>
+        <div className="bg-amber-50 rounded-lg p-3">
+          <p className="text-xs text-amber-700 mb-1">Unmapped</p>
+          <p className="text-2xl font-semibold text-amber-700">{unmappedCount}</p>
+        </div>
+      </div>
+
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <input
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search zones, wards, kothis…"
+          className="flex-1 min-w-[180px] max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button onClick={() => { resetForm(); setShowModal(true) }}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+          <Plus className="h-4 w-4" /> Add Mapping
+        </button>
+      </div>
+
+      {/* ── Legend ── */}
+      <div className="flex gap-4 flex-wrap mb-4 text-xs text-gray-500">
+        {[['text-blue-600', 'Map', 'Zone'], ['text-green-700', 'Building2', 'Ward'], ['text-purple-600', 'Home', 'Kothi'], ['text-amber-600', 'Zap', 'Feeder point']].map(([c, _, l]) => (
+          <span key={l} className={`flex items-center gap-1.5 ${c}`}>{l}</span>
+        ))}
+      </div>
+
+      {/* ── Tree ── */}
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>
+      ) : filteredZones.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 text-sm">No results found.</div>
+      ) : (
+        <div className="space-y-3">
+          {filteredZones.map(zone => {
+            const zOpen = !!expanded.zones[zone.id]
+            const zWards = wards.filter(w => w.zoneId === zone.id)
+            const zKothis = kothis.filter(k => zWards.some(w => w.id === k.wardId))
+            const zFPs = feederPoints.filter(f => zKothis.some(k => k.id === f.kothiId))
+            const zMapped = zFPs.filter(f => f.kothiId).length
+
+            return (
+              <div key={zone.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                {/* Zone row */}
+                <button onClick={() => toggle('zones', zone.id)}
+                  className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
+                  <ChevronDown className={`h-4 w-4 text-blue-500 transition-transform ${zOpen ? '' : '-rotate-90'}`} />
+                  <Map className="h-4 w-4 text-blue-500" />
+                  <span className="flex-1 text-sm font-medium">{zone.name}</span>
+                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{zWards.length} ward{zWards.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full ml-1">{zMapped}/{zFPs.length} FPs</span>
+                </button>
+
+                {zOpen && (
+                  <div className="p-2 space-y-2">
+                    {zWards.length === 0
+                      ? <p className="text-sm text-gray-400 px-3 py-2">No wards in this zone.</p>
+                      : zWards.map(ward => {
+                        const wOpen = !!expanded.wards[ward.id]
+                        const wKothis = kothis.filter(k => k.wardId === ward.id)
+                        const wFPs = feederPoints.filter(f => wKothis.some(k => k.id === f.kothiId))
+                        const wMapped = wFPs.filter(f => f.kothiId).length
+
+                        return (
+                          <div key={ward.id} className="border border-gray-100 rounded-lg overflow-hidden">
+                            <button onClick={() => toggle('wards', ward.id)}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 bg-white hover:bg-gray-50 transition-colors text-left">
+                              <ChevronDown className={`h-3.5 w-3.5 text-green-600 transition-transform ${wOpen ? '' : '-rotate-90'}`} />
+                              <Building2 className="h-3.5 w-3.5 text-green-600" />
+                              <span className="flex-1 text-sm">{ward.name}</span>
+                              <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">{wKothis.length} kothi{wKothis.length !== 1 ? 's' : ''}</span>
+                              <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full ml-1">{wMapped}/{wFPs.length} FPs</span>
+                            </button>
+
+                            {wOpen && (
+                              <div className="border-t border-gray-100 divide-y divide-gray-100">
+                                {wKothis.length === 0
+                                  ? <p className="text-sm text-gray-400 px-4 py-2">No kothis in this ward.</p>
+                                  : wKothis.map(kothi => {
+                                    const kOpen = !!expanded.kothis[kothi.id]
+                                    const kFPs = feederPoints.filter(f => f.kothiId === kothi.id)
+
+                                    return (
+                                      <div key={kothi.id}>
+                                        <button onClick={() => toggle('kothis', kothi.id)}
+                                          className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left">
+                                          <ChevronDown className={`h-3 w-3 text-purple-500 transition-transform ${kOpen ? '' : '-rotate-90'}`} />
+                                          <Home className="h-3.5 w-3.5 text-purple-500" />
+                                          <span className="flex-1 text-sm">{kothi.name}</span>
+                                          <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">{kFPs.length} FP{kFPs.length !== 1 ? 's' : ''}</span>
+                                        </button>
+
+                                        {kOpen && (
+                                          <div className="bg-gray-50 px-4 py-2 space-y-1.5 border-t border-gray-100">
+                                            {kFPs.length === 0
+                                              ? <p className="text-xs text-gray-400 py-1">No feeder points mapped.</p>
+                                              : kFPs.map(fp => (
+                                                <div key={fp.id} className="flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-2">
+                                                  <span className="text-amber-500">⚡</span>
+                                                  <span className="flex-1 text-xs font-medium">{fp.name}</span>
+                                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Mapped</span>
+                                                  <button onClick={() => setDeleteTarget(fp)}
+                                                    className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                                                    <Trash2 className="h-3 w-3" />
+                                                  </button>
+                                                </div>
+                                              ))
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })
+                                }
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
+                    }
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Add Mapping Modal ── */}
+      {showModal && (
+        <Modal title="Add Mapping" onClose={() => { setShowModal(false); resetForm() }}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+              <select value={formZoneId} onChange={e => { setFormZoneId(e.target.value); setFormWardId(''); setFormKothiId(''); setFormFeederPointId('') }} className={selectCls}>
+                <option value="">Select a zone</option>
+                {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ward</label>
+              <select value={formWardId} onChange={e => { setFormWardId(e.target.value); setFormKothiId(''); setFormFeederPointId('') }} disabled={!formZoneId} className={selectCls}>
+                <option value="">Select a ward</option>
+                {filtWards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kothi</label>
+              <select value={formKothiId} onChange={e => { setFormKothiId(e.target.value); setFormFeederPointId('') }} disabled={!formWardId} className={selectCls}>
+                <option value="">Select a kothi</option>
+                {filtKothis.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feeder Point</label>
+              <select value={formFeederPointId} onChange={e => setFormFeederPointId(e.target.value)} disabled={!formKothiId} className={selectCls}>
+                <option value="">Select a feeder point</option>
+                {filtFPs.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <button onClick={() => { setShowModal(false); resetForm() }} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={saving || !formFeederPointId}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 transition-colors">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />} Map
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete Confirm ── */}
+      {deleteTarget && (
+        <ConfirmDelete
+          name={`mapping for ${deleteTarget.name}`}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleting}
+        />
+      )}
+    </div>
+  )
+}
 
 // ─── ASSIGNMENT TAB ───────────────────────────────────────────────────────────
 function AssignmentTab() {
@@ -737,6 +1005,7 @@ export default function MasterPage() {
       case 'Zones': return <ZonesTab />
       case 'Wards': return <WardsTab />
       case 'Kothis': return <KothisTab />
+      case 'Mapping': return <MappingTab />
       case 'Assignment': return <AssignmentTab />
       default: return null
     }

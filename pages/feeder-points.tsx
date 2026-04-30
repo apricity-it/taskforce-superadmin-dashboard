@@ -96,10 +96,13 @@ export default function FeederPointsPage() {
 
   useEffect(() => {
     const unsubscribeFeederPoints = DataService.onFeederPointsChange(feederPointsData => {
-      setFeederPoints(feederPointsData)
+      const feederOnly = feederPointsData.filter(
+        point => (point.type ?? 'feeder') === 'feeder'
+      )
+
+      setFeederPoints(feederOnly)
       setLoading(false)
     })
-
     const unsubscribeTeams = DataService.onTeamsChange(teamsData => {
       setTeams(teamsData)
     })
@@ -179,11 +182,12 @@ export default function FeederPointsPage() {
 
   const loadFeederPoints = async () => {
     setLoading(true)
-    const points = await DataService.getAllFeederPoints()
+
+    const points = await DataService.getFeederPointsOnly()
+
     setFeederPoints(points)
     setLoading(false)
   }
-
   const filterFeederPoints = () => {
     let filtered = enhancedFeederPoints
 
@@ -284,8 +288,17 @@ export default function FeederPointsPage() {
     setReportLoading(true)
 
     try {
-      const reports = await DataService.getFeederPointReports(feederPoint.id, feederPoint.name)
-      setFeederPointReports(reports)
+      const reports = await DataService.getFeederPointReports(
+        feederPoint.id,
+        feederPoint.name
+      )
+
+      const feederReportsOnly = reports.filter(
+        report => (report.feederPointType ?? 'feeder') === 'feeder'
+      )
+
+      setFeederPointReports(feederReportsOnly)
+
     } catch (error) {
       console.error('Error loading feeder point report:', error)
       setReportError('Unable to load compliance data for this feeder point. Please try again.')
@@ -364,7 +377,7 @@ export default function FeederPointsPage() {
   }
 
   const stats = {
-    total: enhancedFeederPoints.length,
+    total: enhancedFeederPoints.filter(fp => (fp.type ?? 'feeder') === 'feeder').length,
     active: enhancedFeederPoints.filter(fp => fp.status === 'active').length,
     maintenance: enhancedFeederPoints.filter(fp => fp.status === 'maintenance').length,
     inactive: enhancedFeederPoints.filter(fp => fp.status === 'inactive').length,
@@ -796,7 +809,7 @@ export default function FeederPointsPage() {
               </h3>
               <p className="mt-1 text-sm text-gray-500">
                 {feederPoints.length === 0
-                  ? 'Feeder points will appear here when they are created in the mobile app.'
+                  ? 'Feeder points will appear here when feeder points are created in the mobile app.'
                   : searchTerm || statusFilter !== 'all' || assignmentFilter !== 'all' || zoneFilter || wardFilter || kothiFilter
                     ? 'Try adjusting your search or filters.'
                     : 'All feeder points are currently filtered out.'}
