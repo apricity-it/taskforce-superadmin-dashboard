@@ -15,7 +15,7 @@ import {
 import { DataService, ComplianceReport } from '@/lib/dataService'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PIE_COLORS    = ['#10b981', '#ef4444', '#f59e0b']
+const PIE_COLORS = ['#10b981', '#ef4444', '#f59e0b']
 const TOOLTIP_STYLE = {
     borderRadius: '12px', border: 'none',
     boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
@@ -23,35 +23,59 @@ const TOOLTIP_STYLE = {
 }
 
 const FILTERS = [
-    { key: 'today',     label: 'Today'     },
+    { key: 'today', label: 'Today' },
     { key: 'yesterday', label: 'Yesterday' },
-    { key: 'week',      label: 'This Week' },
-    { key: 'month',     label: 'This Month'},
-    { key: 'custom',    label: 'Custom'    },
+    { key: 'week', label: 'This Week' },
+    { key: 'month', label: 'This Month' },
+    { key: 'custom', label: 'Custom' },
 ]
 
 const STAT_META = [
-    { key: 'feederPoints',   label: 'Feeder Points', icon: Activity,      g: 'from-teal-500 to-emerald-600',  s: 'shadow-teal-500/30',   link: '/feeder-points'                    },
-    { key: 'users',          label: 'Users',         icon: Users,         g: 'from-blue-500 to-indigo-600',   s: 'shadow-blue-500/30',   link: '/users'                            },
-    { key: 'pending',        label: 'Pending',       icon: Clock,         g: 'from-amber-400 to-orange-500',  s: 'shadow-orange-500/30', link: '/report-review?tab=pending'        },
-    { key: 'approved',       label: 'Approved',      icon: TrendingUp,    g: 'from-emerald-400 to-green-600', s: 'shadow-green-500/30',  link: '/report-review?tab=approved'       },
-    { key: 'rejected',       label: 'Rejected',      icon: AlertTriangle, g: 'from-rose-400 to-red-600',      s: 'shadow-red-500/30',    link: '/report-review?tab=rejected'       },
-    { key: 'actionRequired', label: 'Action Req.',   icon: Zap,           g: 'from-yellow-400 to-amber-500',  s: 'shadow-yellow-500/30', link: '/report-review?tab=requires_action'},
-    { key: 'totalReports',   label: 'Total Reports', icon: FileText,      g: 'from-violet-500 to-purple-600', s: 'shadow-violet-500/30', link: '/report-review'                    },
+    { key: 'feederPoints', label: 'Feeder Points', icon: Activity, g: 'from-teal-500 to-emerald-600', s: 'shadow-teal-500/30', link: '/feeder-points' },
+    { key: 'users', label: 'Users', icon: Users, g: 'from-blue-500 to-indigo-600', s: 'shadow-blue-500/30', link: '/users' },
+    { key: 'pending', label: 'Pending', icon: Clock, g: 'from-amber-400 to-orange-500', s: 'shadow-orange-500/30', link: '/report-review?tab=pending' },
+    { key: 'approved', label: 'Approved', icon: TrendingUp, g: 'from-emerald-400 to-green-600', s: 'shadow-green-500/30', link: '/report-review?tab=approved' },
+    { key: 'rejected', label: 'Rejected', icon: AlertTriangle, g: 'from-rose-400 to-red-600', s: 'shadow-red-500/30', link: '/report-review?tab=rejected' },
+    { key: 'actionRequired', label: 'Action Req.', icon: Zap, g: 'from-yellow-400 to-amber-500', s: 'shadow-yellow-500/30', link: '/report-review?tab=requires_action' },
+    { key: 'totalReports', label: 'Total Reports', icon: FileText, g: 'from-violet-500 to-purple-600', s: 'shadow-violet-500/30', link: '/report-review' },
+    {
+        key: 'chronicPoints',
+        label: 'Chronic Points',
+        icon: Zap,
+        g: 'from-purple-500 to-violet-600',
+        s: 'shadow-violet-500/30',
+        link: '/chronic-points'
+    },
+    {
+        key: 'chronicShiftReports',
+        label: 'Shift Reports',
+        icon: TrendingUp,
+        g: 'from-cyan-500 to-sky-600',
+        s: 'shadow-cyan-500/30',
+        link: '/chronic-points'
+    },
+    {
+        key: 'eliminatedChronic',
+        label: 'Eliminated Chronic',
+        icon: AlertTriangle,
+        g: 'from-rose-500 to-pink-600',
+        s: 'shadow-rose-500/30',
+        link: '/chronic-points'
+    },
 ] as const
 
 const QUICK_LINKS = [
-    { title: 'User Requests',   link: '/access-requests',          icon: Users,         color: 'from-blue-500 to-indigo-600',   accent: 'group-hover:border-blue-200   group-hover:bg-blue-50/50'   },
-    { title: 'Feeder Points',   link: '/feeder-points',            icon: Activity,      color: 'from-teal-500 to-emerald-600',  accent: 'group-hover:border-teal-200   group-hover:bg-teal-50/50'   },
-    { title: 'Feeder Requests', link: '/feeder-point-requests',    icon: Clock,         color: 'from-orange-400 to-amber-500',  accent: 'group-hover:border-orange-200 group-hover:bg-orange-50/50' },
-    { title: 'Eliminated FP',   link: '/eliminated-feeder-points', icon: AlertTriangle, color: 'from-rose-500 to-red-600',      accent: 'group-hover:border-rose-200   group-hover:bg-rose-50/50'   },
-    { title: 'Reports',         link: '/qc-reports',               icon: TrendingUp,    color: 'from-emerald-500 to-green-600', accent: 'group-hover:border-emerald-200 group-hover:bg-emerald-50/50'},
-    { title: 'Frequency Req.',  link: '/frequency-requests',       icon: RefreshCw,     color: 'from-violet-500 to-purple-600', accent: 'group-hover:border-violet-200 group-hover:bg-violet-50/50' },
+    { title: 'User Requests', link: '/access-requests', icon: Users, color: 'from-blue-500 to-indigo-600', accent: 'group-hover:border-blue-200   group-hover:bg-blue-50/50' },
+    { title: 'Feeder Points', link: '/feeder-points', icon: Activity, color: 'from-teal-500 to-emerald-600', accent: 'group-hover:border-teal-200   group-hover:bg-teal-50/50' },
+    { title: 'Feeder Requests', link: '/feeder-point-requests', icon: Clock, color: 'from-orange-400 to-amber-500', accent: 'group-hover:border-orange-200 group-hover:bg-orange-50/50' },
+    { title: 'Eliminated FP', link: '/eliminated-feeder-points', icon: AlertTriangle, color: 'from-rose-500 to-red-600', accent: 'group-hover:border-rose-200   group-hover:bg-rose-50/50' },
+    { title: 'Reports', link: '/qc-reports', icon: TrendingUp, color: 'from-emerald-500 to-green-600', accent: 'group-hover:border-emerald-200 group-hover:bg-emerald-50/50' },
+    { title: 'Frequency Req.', link: '/frequency-requests', icon: RefreshCw, color: 'from-violet-500 to-purple-600', accent: 'group-hover:border-violet-200 group-hover:bg-violet-50/50' },
 ]
 
 // ─── Weekly trend ─────────────────────────────────────────────────────────────
 const buildWeeklyTrend = (reports: ComplianceReport[]) => {
-    const result = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(day => ({ day, reports: 0 }))
+    const result = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => ({ day, reports: 0 }))
     reports.forEach(r => {
         if (!r.createdAt) return
         const d = new Date(r.createdAt.seconds * 1000).getDay()
@@ -63,17 +87,26 @@ const buildWeeklyTrend = (reports: ComplianceReport[]) => {
 // ─────────────────────────────────────────────────────────────────────────────
 function QCDashboardComponent() {
     const { user } = useAuth()
-    const [mounted,     setMounted]     = useState(false)
-    const [loading,     setLoading]     = useState(true)
-    const [refreshing,  setRefreshing]  = useState(false)
-    const [dateFilter,  setDateFilter]  = useState('today')
+    const [mounted, setMounted] = useState(false)
+    const [loading, setLoading] = useState(true)
+    const [refreshing, setRefreshing] = useState(false)
+    const [dateFilter, setDateFilter] = useState('today')
     const [customRange, setCustomRange] = useState({ start: '', end: '' })
     const [stats, setStats] = useState({
-        feederPoints: 0, users: 0, pending: 0, approved: 0,
-        rejected: 0, eliminated: 0, actionRequired: 0, totalReports: 0,
+        feederPoints: 0,
+        chronicPoints: 0,
+        chronicShiftReports: 0,
+        eliminatedChronic: 0,
+        users: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        eliminated: 0,
+        actionRequired: 0,
+        totalReports: 0,
     })
     const [weeklyData, setWeeklyData] = useState<{ day: string; reports: number }[]>([])
-    const [insights,   setInsights]   = useState<string[]>([])
+    const [insights, setInsights] = useState<string[]>([])
 
     useEffect(() => setMounted(true), [])
 
@@ -82,17 +115,17 @@ function QCDashboardComponent() {
         let start: Date
         switch (dateFilter) {
             case 'today':
-                start = new Date(); start.setHours(0,0,0,0); break
+                start = new Date(); start.setHours(0, 0, 0, 0); break
             case 'yesterday':
-                start = new Date(); start.setDate(start.getDate()-1); start.setHours(0,0,0,0)
-                end.setDate(end.getDate()-1); end.setHours(23,59,59,999); break
+                start = new Date(); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0)
+                end.setDate(end.getDate() - 1); end.setHours(23, 59, 59, 999); break
             case 'week':
-                start = new Date(); start.setDate(start.getDate()-7); break
+                start = new Date(); start.setDate(start.getDate() - 7); break
             case 'month':
-                start = new Date(); start.setMonth(start.getMonth()-1); break
+                start = new Date(); start.setMonth(start.getMonth() - 1); break
             case 'custom':
                 if (!customRange.start || !customRange.end) return { start: new Date(0), end: new Date() }
-                const ce = new Date(customRange.end); ce.setHours(23,59,59,999)
+                const ce = new Date(customRange.end); ce.setHours(23, 59, 59, 999)
                 return { start: new Date(customRange.start), end: ce }
             default:
                 start = new Date(0)
@@ -102,7 +135,7 @@ function QCDashboardComponent() {
 
     const filterReports = useCallback((reps: ComplianceReport[], s: Date, e: Date) =>
         reps.filter(r => {
-            const d = r.submittedAt?.toDate?.() ?? (r.createdAt?.seconds ? new Date(r.createdAt.seconds*1000) : new Date())
+            const d = r.submittedAt?.toDate?.() ?? (r.createdAt?.seconds ? new Date(r.createdAt.seconds * 1000) : new Date())
             return d >= s && d <= e
         }), [])
 
@@ -116,26 +149,36 @@ function QCDashboardComponent() {
                 DataService.getAllComplianceReports(),
                 DataService.getFeederPointRequests('pending'),
             ])
-            const fr       = filterReports(reports, start, end)
-            const pending  = fr.filter(r => r.status === 'pending').length
+            const fr = filterReports(reports, start, end)
+            const pending = fr.filter(r => r.status === 'pending').length
             const approved = fr.filter(r => r.status === 'approved').length
             const rejected = fr.filter(r => r.status === 'rejected').length
             setStats({
-                feederPoints:   fps.length,
-                users:          users.length,
-                pending, approved, rejected,
-                eliminated:     fps.filter(fp => fp.isEliminated).length,
+                feederPoints: fps.filter(fp => (fp.type ?? 'feeder') === 'feeder').length,
+                chronicPoints: fps.filter(fp => fp.type === 'chronic').length,
+                chronicShiftReports: reports.filter(
+                    r => (r.feederPointType ?? 'feeder') === 'chronic'
+                ).length,
+                eliminatedChronic: fps.filter(
+                    fp => fp.type === 'chronic' && fp.isEliminated
+                ).length,
+
+                users: users.length,
+                pending,
+                approved,
+                rejected,
+                eliminated: fps.filter(fp => fp.isEliminated).length,
                 actionRequired: fr.filter(r => r.status === 'requires_action').length,
-                totalReports:   fr.length,
+                totalReports: fr.length,
             })
             setWeeklyData(buildWeeklyTrend(fr))
             const ins: string[] = []
-            if (pending > 10)        ins.push('High number of pending QC approvals need attention')
+            if (pending > 10) ins.push('High number of pending QC approvals need attention')
             if (rejected > approved) ins.push('Rejection rate exceeds approval rate — review submissions')
-            if (approved > 20)       ins.push('Strong QC throughput this period')
-            if (fpReqs.length > 5)   ins.push('Multiple feeder point requests awaiting review')
+            if (approved > 20) ins.push('Strong QC throughput this period')
+            if (fpReqs.length > 5) ins.push('Multiple feeder point requests awaiting review')
             setInsights(ins)
-        } catch(e) { console.error(e) }
+        } catch (e) { console.error(e) }
         finally { setLoading(false) }
     }, [getDateRange, filterReports])
 
@@ -152,18 +195,18 @@ function QCDashboardComponent() {
     const pieData = useMemo(() => [
         { name: 'Approved', value: stats.approved },
         { name: 'Rejected', value: stats.rejected },
-        { name: 'Pending',  value: stats.pending  },
+        { name: 'Pending', value: stats.pending },
     ], [stats])
 
     const barData = useMemo(() => [
-        { name: 'Active',     value: Math.max(0, stats.feederPoints - stats.eliminated) },
+        { name: 'Active', value: Math.max(0, stats.feederPoints - stats.eliminated) },
         { name: 'Eliminated', value: stats.eliminated },
     ], [stats])
 
     if (!mounted || loading) return <Skeleton />
 
-    const hour      = new Date().getHours()
-    const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+    const hour = new Date().getHours()
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
     const firstName = user?.name?.split(' ')[0] ?? 'QC'
 
     return (
@@ -175,28 +218,38 @@ function QCDashboardComponent() {
          */
         <div className="flex flex-col gap-5">
 
-            {/* ── PAGE HEADER ───────────────────────────────────────────── */}
-            <div className="flex items-center justify-between gap-1">
-                <div>
-                    <h1 className="text-xl font-bold text-gray-900 leading-tight tracking-tight">
-                        {greeting}, 👋
-                    </h1>
-                    <p className="mt-0.5 text-[13px] text-gray-400 leading-none">
-                        Here&apos;s your QC overview for today
-                    </p>
-                </div>
-                <button
-                    onClick={handleRefresh}
-                    className="flex shrink-0 items-center gap-2 rounded-xl border border-gray-200
-                        bg-white px-3.5 py-2 text-xs font-semibold text-gray-600 shadow-sm
-                        hover:bg-gray-50 hover:border-gray-300 active:scale-95
-                        transition-all duration-150"
-                >
-                    <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
+            {/* ── HERO CARD ───────────────────────────────────────────── */}
+            <div
+                className="relative overflow-hidden rounded-2xl p-7 text-white"
+                style={{
+                    background:
+                        'linear-gradient(135deg,#0f766e 0%,#115e59 45%,#134e4a 100%)',
+                }}
+            >
+                <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white opacity-10" />
+                <div className="pointer-events-none absolute right-20 -bottom-20 h-40 w-40 rounded-full bg-emerald-300 opacity-10" />
 
+                <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                        <h1 className="text-2xl font-semibold tracking-tight mb-1">
+                            {greeting}, {firstName} 👋
+                        </h1>
+                        <p className="text-sm opacity-80 tracking-wide">
+                            Here&apos;s your QC overview for today
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={handleRefresh}
+                        className="flex items-center gap-2 rounded-xl border border-white/20
+                bg-white/10 px-4 py-2 text-sm font-medium text-white/90
+                backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                </div>
+            </div>
             {/* ── MAIN CARD — one white container, everything inside ─────── */}
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
 
@@ -241,7 +294,7 @@ function QCDashboardComponent() {
                 </div>
 
                 {/* ── STAT CARDS ── */}
-                <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4 lg:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-5">
                     {STAT_META.map(s => (
                         <Link href={s.link} key={s.key}>
                             <div className={`group relative cursor-pointer overflow-hidden rounded-xl
@@ -316,9 +369,9 @@ function QCDashboardComponent() {
                                         <stop offset="100%" stopColor="#0d9488" />
                                     </linearGradient>
                                 </defs>
-                                <Bar dataKey="value" fill="url(#barGrad)" radius={[6,6,0,0]}
+                                <Bar dataKey="value" fill="url(#barGrad)" radius={[6, 6, 0, 0]}
                                     onClick={(d: any) => {
-                                        if (d.name === 'Active')     window.location.href = '/feeder-points'
+                                        if (d.name === 'Active') window.location.href = '/feeder-points'
                                         if (d.name === 'Eliminated') window.location.href = '/eliminated-feeder-points'
                                     }}
                                     className="cursor-pointer"
@@ -411,34 +464,74 @@ function QCDashboardComponent() {
 
                 <HR />
 
-                {/* ── QUICK ACCESS ── */}
+                {/* ── QUICK ACTIONS ───────────────────────────────────────── */}
                 <div className="p-5">
                     <CardHeader
-                        icon={Zap} iconBg="bg-gray-800" iconColor="text-white" solid
-                        title="Quick Access" sub="Jump to any module instantly"
+                        icon={Zap}
+                        iconBg="bg-gray-800"
+                        iconColor="text-white"
+                        solid
+                        title="Quick Actions"
+                        sub="Jump to any module instantly"
                     />
-                    <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                        {QUICK_LINKS.map(q => (
-                            <Link href={q.link} key={q.title}>
-                                <div className={`group flex cursor-pointer items-center justify-between
-                                    gap-2.5 rounded-xl border border-gray-100 bg-white px-3.5 py-3
-                                    transition-all duration-150 ${q.accent}
-                                    hover:-translate-y-px hover:shadow-sm`}
+
+                    <div className="mt-4 grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        {[
+                            {
+                                label: 'User Requests',
+                                href: '/access-requests',
+                                bg: '#1E3A8A',
+                                text: '#EFF6FF',
+                                icon: Users,
+                            },
+                            {
+                                label: 'Feeder Points',
+                                href: '/feeder-points',
+                                bg: '#0F766E',
+                                text: '#ECFEFF',
+                                icon: Activity,
+                            },
+                            {
+                                label: 'Feeder Requests',
+                                href: '/feeder-point-requests',
+                                bg: '#C2410C',
+                                text: '#FFF7ED',
+                                icon: Clock,
+                            },
+                            {
+                                label: 'Eliminated FP',
+                                href: '/eliminated-feeder-points',
+                                bg: '#BE123C',
+                                text: '#FFF1F2',
+                                icon: AlertTriangle,
+                            },
+                            {
+                                label: 'Reports',
+                                href: '/qc-reports',
+                                bg: '#15803D',
+                                text: '#F0FDF4',
+                                icon: TrendingUp,
+                            },
+                            {
+                                label: 'Frequency Req.',
+                                href: '/frequency-requests',
+                                bg: '#6D28D9',
+                                text: '#F5F3FF',
+                                icon: RefreshCw,
+                            },
+                        ].map((action) => (
+                            <Link href={action.href} key={action.label}>
+                                <div
+                                    className="flex items-center justify-center gap-2 rounded-xl px-4 py-3
+                        text-sm font-semibold transition hover:opacity-90
+                        active:scale-[0.97] cursor-pointer"
+                                    style={{
+                                        background: action.bg,
+                                        color: action.text,
+                                    }}
                                 >
-                                    <div className="flex min-w-0 items-center gap-2.5">
-                                        <div className={`shrink-0 rounded-lg bg-gradient-to-br p-1.5
-                                            ${q.color} text-white shadow-sm
-                                            transition-transform duration-200 group-hover:scale-110`}>
-                                            <q.icon className="h-3.5 w-3.5" />
-                                        </div>
-                                        <span className="truncate text-xs font-semibold text-gray-700
-                                            group-hover:text-gray-900 transition-colors">
-                                            {q.title}
-                                        </span>
-                                    </div>
-                                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300
-                                        transition-all duration-150
-                                        group-hover:translate-x-0.5 group-hover:text-teal-500" />
+                                    <action.icon className="h-4 w-4" strokeWidth={1.8} />
+                                    {action.label}
                                 </div>
                             </Link>
                         ))}
@@ -511,7 +604,7 @@ function Skeleton() {
                     ))}
                 </div>
                 {/* stat cards */}
-                <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4 lg:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-5">
                     {Array.from({ length: 7 }).map((_, i) => (
                         <div key={i} className="h-24 rounded-xl bg-gray-200" />
                     ))}
