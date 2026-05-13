@@ -9,6 +9,8 @@ import {
   Search, Sun, Moon, Zap,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import NotificationBell, { MissingReportBadge } from '@/components/NotificationBell'
+
 
 interface LayoutProps {
   children: React.ReactNode
@@ -228,14 +230,9 @@ export default function Layout({ children }: LayoutProps) {
             >
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-
+            <MissingReportBadge />
             {/* Notifications */}
-            <button className="relative p-2.5 rounded-xl text-gray-500 hover:bg-gray-100 
-              hover:text-gray-700 transition-all active:scale-95">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full
-                ring-2 ring-white animate-pulse" />
-            </button>
+            <NotificationBell />
 
             {/* Divider */}
             <div className="w-px h-6 bg-gray-200 mx-1" />

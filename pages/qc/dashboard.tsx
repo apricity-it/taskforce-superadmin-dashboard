@@ -9,10 +9,11 @@ import {
 } from 'recharts'
 import {
     Users, Activity, Clock, TrendingUp, AlertTriangle,
-    ChevronRight, Zap, BarChart3, Eye, FileText,
+    Zap, BarChart3, Eye, FileText,
     Calendar, RefreshCw, Sparkles,
 } from 'lucide-react'
 import { DataService, ComplianceReport } from '@/lib/dataService'
+import ExcelExports from '@/components/ExcelExports'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PIE_COLORS = ['#10b981', '#ef4444', '#f59e0b']
@@ -63,15 +64,6 @@ const STAT_META = [
         link: '/chronic-points'
     },
 ] as const
-
-const QUICK_LINKS = [
-    { title: 'User Requests', link: '/access-requests', icon: Users, color: 'from-blue-500 to-indigo-600', accent: 'group-hover:border-blue-200   group-hover:bg-blue-50/50' },
-    { title: 'Feeder Points', link: '/feeder-points', icon: Activity, color: 'from-teal-500 to-emerald-600', accent: 'group-hover:border-teal-200   group-hover:bg-teal-50/50' },
-    { title: 'Feeder Requests', link: '/feeder-point-requests', icon: Clock, color: 'from-orange-400 to-amber-500', accent: 'group-hover:border-orange-200 group-hover:bg-orange-50/50' },
-    { title: 'Eliminated FP', link: '/eliminated-feeder-points', icon: AlertTriangle, color: 'from-rose-500 to-red-600', accent: 'group-hover:border-rose-200   group-hover:bg-rose-50/50' },
-    { title: 'Reports', link: '/qc-reports', icon: TrendingUp, color: 'from-emerald-500 to-green-600', accent: 'group-hover:border-emerald-200 group-hover:bg-emerald-50/50' },
-    { title: 'Frequency Req.', link: '/frequency-requests', icon: RefreshCw, color: 'from-violet-500 to-purple-600', accent: 'group-hover:border-violet-200 group-hover:bg-violet-50/50' },
-]
 
 // ─── Weekly trend ─────────────────────────────────────────────────────────────
 const buildWeeklyTrend = (reports: ComplianceReport[]) => {
@@ -162,7 +154,6 @@ function QCDashboardComponent() {
                 eliminatedChronic: fps.filter(
                     fp => fp.type === 'chronic' && fp.isEliminated
                 ).length,
-
                 users: users.length,
                 pending,
                 approved,
@@ -210,21 +201,12 @@ function QCDashboardComponent() {
     const firstName = user?.name?.split(' ')[0] ?? 'QC'
 
     return (
-        /**
-         * No extra wrapper div needed — layout's <main> already provides:
-         *   max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6
-         * and the sidebar transition handles lg:pl-[70px] → lg:pl-64.
-         * We just add vertical spacing between sections.
-         */
         <div className="flex flex-col gap-5">
 
             {/* ── HERO CARD ───────────────────────────────────────────── */}
             <div
                 className="relative overflow-hidden rounded-2xl p-7 text-white"
-                style={{
-                    background:
-                        'linear-gradient(135deg,#0f766e 0%,#115e59 45%,#134e4a 100%)',
-                }}
+                style={{ background: 'linear-gradient(135deg,#0f766e 0%,#115e59 45%,#134e4a 100%)' }}
             >
                 <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white opacity-10" />
                 <div className="pointer-events-none absolute right-20 -bottom-20 h-40 w-40 rounded-full bg-emerald-300 opacity-10" />
@@ -238,19 +220,19 @@ function QCDashboardComponent() {
                             Here&apos;s your QC overview for today
                         </p>
                     </div>
-
                     <button
                         onClick={handleRefresh}
                         className="flex items-center gap-2 rounded-xl border border-white/20
-                bg-white/10 px-4 py-2 text-sm font-medium text-white/90
-                backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
+                            bg-white/10 px-4 py-2 text-sm font-medium text-white/90
+                            backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
                     >
                         <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
                         Refresh
                     </button>
                 </div>
             </div>
-            {/* ── MAIN CARD — one white container, everything inside ─────── */}
+
+            {/* ── MAIN CARD ─────────────────────────────────────────────── */}
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
 
                 {/* ── FILTER BAR ── */}
@@ -302,7 +284,6 @@ function QCDashboardComponent() {
                                 ${s.g} ${s.s}
                                 transition-all duration-200 hover:scale-[1.03] hover:shadow-lg active:scale-[0.97]`}
                             >
-                                {/* decorative circles */}
                                 <span className="absolute -right-2 -top-2 h-10 w-10 rounded-full bg-white/10" />
                                 <span className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-white/5" />
                                 <div className="relative z-10">
@@ -328,7 +309,7 @@ function QCDashboardComponent() {
                     <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
                         <CardHeader
                             icon={BarChart3} iconBg="bg-teal-50" iconColor="text-teal-600"
-                            title="Compliance Overview" sub="Report status distribution"
+                            title="Report Overview" sub="Report status distribution"
                         />
                         {pieData.every(d => d.value === 0)
                             ? <Empty />
@@ -355,7 +336,7 @@ function QCDashboardComponent() {
                     <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
                         <CardHeader
                             icon={Activity} iconBg="bg-blue-50" iconColor="text-blue-600"
-                            title="System Overview" sub="Feeder points breakdown"
+                            title="Feederpoint Status" sub="Feeder points breakdown"
                         />
                         <ResponsiveContainer height={220} className="mt-3">
                             <BarChart data={barData} barCategoryGap="40%">
@@ -464,7 +445,7 @@ function QCDashboardComponent() {
 
                 <HR />
 
-                {/* ── QUICK ACTIONS ───────────────────────────────────────── */}
+                {/* ── QUICK ACTIONS ── */}
                 <div className="p-5">
                     <CardHeader
                         icon={Zap}
@@ -474,61 +455,21 @@ function QCDashboardComponent() {
                         title="Quick Actions"
                         sub="Jump to any module instantly"
                     />
-
                     <div className="mt-4 grid grid-cols-2 lg:grid-cols-3 gap-3">
                         {[
-                            {
-                                label: 'User Requests',
-                                href: '/access-requests',
-                                bg: '#1E3A8A',
-                                text: '#EFF6FF',
-                                icon: Users,
-                            },
-                            {
-                                label: 'Feeder Points',
-                                href: '/feeder-points',
-                                bg: '#0F766E',
-                                text: '#ECFEFF',
-                                icon: Activity,
-                            },
-                            {
-                                label: 'Feeder Requests',
-                                href: '/feeder-point-requests',
-                                bg: '#C2410C',
-                                text: '#FFF7ED',
-                                icon: Clock,
-                            },
-                            {
-                                label: 'Eliminated FP',
-                                href: '/eliminated-feeder-points',
-                                bg: '#BE123C',
-                                text: '#FFF1F2',
-                                icon: AlertTriangle,
-                            },
-                            {
-                                label: 'Reports',
-                                href: '/qc-reports',
-                                bg: '#15803D',
-                                text: '#F0FDF4',
-                                icon: TrendingUp,
-                            },
-                            {
-                                label: 'Frequency Req.',
-                                href: '/frequency-requests',
-                                bg: '#6D28D9',
-                                text: '#F5F3FF',
-                                icon: RefreshCw,
-                            },
+                            { label: 'User Requests',   href: '/access-requests',           bg: '#1E3A8A', text: '#EFF6FF', icon: Users },
+                            { label: 'Feeder Points',   href: '/feeder-points',             bg: '#0F766E', text: '#ECFEFF', icon: Activity },
+                            { label: 'Feeder Requests', href: '/feeder-point-requests',     bg: '#C2410C', text: '#FFF7ED', icon: Clock },
+                            { label: 'Eliminated FP',   href: '/eliminated-feeder-points',  bg: '#BE123C', text: '#FFF1F2', icon: AlertTriangle },
+                            { label: 'Reports',         href: '/qc-reports',                bg: '#15803D', text: '#F0FDF4', icon: TrendingUp },
+                            { label: 'Frequency Req.',  href: '/frequency-requests',        bg: '#6D28D9', text: '#F5F3FF', icon: RefreshCw },
                         ].map((action) => (
                             <Link href={action.href} key={action.label}>
                                 <div
                                     className="flex items-center justify-center gap-2 rounded-xl px-4 py-3
-                        text-sm font-semibold transition hover:opacity-90
-                        active:scale-[0.97] cursor-pointer"
-                                    style={{
-                                        background: action.bg,
-                                        color: action.text,
-                                    }}
+                                        text-sm font-semibold transition hover:opacity-90
+                                        active:scale-[0.97] cursor-pointer"
+                                    style={{ background: action.bg, color: action.text }}
                                 >
                                     <action.icon className="h-4 w-4" strokeWidth={1.8} />
                                     {action.label}
@@ -538,6 +479,22 @@ function QCDashboardComponent() {
                     </div>
                 </div>
 
+                {/* ─────────────────────────────────────────────────────────── */}
+                {/* ── EXCEL EXPORTS ── inserted here, after Quick Actions ──── */}
+                {/* ─────────────────────────────────────────────────────────── */}
+                <HR />
+                <div className="p-5">
+                    <CardHeader
+                        icon={FileText}
+                        iconBg="bg-gradient-to-br from-teal-600 to-blue-600"
+                        iconColor="text-white"
+                        solid
+                        title="Export to Excel"
+                        sub="Download feederpoint & trip data as .xlsx"
+                    />
+                    <ExcelExports />
+                </div>
+
             </div>{/* /main card */}
         </div>
     )
@@ -545,12 +502,10 @@ function QCDashboardComponent() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-/** Thin rule that separates sections inside the main card */
 function HR() {
     return <div className="mx-5 h-px bg-gray-100" />
 }
 
-/** Section heading with coloured icon */
 function CardHeader({ icon: Icon, iconBg, iconColor, title, sub, solid = false }: {
     icon: any
     iconBg: string
@@ -573,7 +528,6 @@ function CardHeader({ icon: Icon, iconBg, iconColor, title, sub, solid = false }
     )
 }
 
-/** Empty chart placeholder */
 function Empty() {
     return (
         <div className="flex h-[220px] flex-col items-center justify-center text-gray-300">
@@ -587,7 +541,6 @@ function Empty() {
 function Skeleton() {
     return (
         <div className="flex flex-col gap-5 animate-pulse">
-            {/* header */}
             <div className="flex items-center justify-between">
                 <div className="space-y-2">
                     <div className="h-6 w-48 rounded-lg bg-gray-200" />
@@ -595,28 +548,23 @@ function Skeleton() {
                 </div>
                 <div className="h-9 w-24 rounded-xl bg-gray-200" />
             </div>
-            {/* main card */}
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                {/* filter bar */}
                 <div className="flex gap-2 border-b border-gray-100 px-5 py-3.5">
                     {Array.from({ length: 5 }).map((_, i) => (
                         <div key={i} className="h-7 w-20 rounded-lg bg-gray-100" />
                     ))}
                 </div>
-                {/* stat cards */}
                 <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-5">
                     {Array.from({ length: 7 }).map((_, i) => (
                         <div key={i} className="h-24 rounded-xl bg-gray-200" />
                     ))}
                 </div>
                 <div className="mx-5 h-px bg-gray-100" />
-                {/* charts */}
                 <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-2">
                     <div className="h-72 rounded-xl bg-gray-100" />
                     <div className="h-72 rounded-xl bg-gray-100" />
                 </div>
                 <div className="mx-5 h-px bg-gray-100" />
-                {/* trend */}
                 <div className="p-5">
                     <div className="h-56 rounded-xl bg-gray-100" />
                 </div>

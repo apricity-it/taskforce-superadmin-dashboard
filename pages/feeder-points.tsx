@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { DataService, FeederPoint, Team, User, Zone, Ward, Kothi, ComplianceReport, ComplianceAnswer } from '@/lib/dataService'
 import { AIService } from '@/lib/aiService'
+import * as XLSX from 'xlsx'
+import { saveAs } from 'file-saver'
 
 const YES_ANSWER_VALUES = new Set(['yes', 'y', 'true', 'clean', 'present', 'available', 'segregated', '1', '​o"​,?', '​o.'])
 const NO_ANSWER_VALUES = new Set(['no', 'n', 'false', 'dirty', 'absent', 'not present', 'not available', 'not clean', 'not segregated', '0', '​?O', '​o-​,?'])
@@ -368,6 +370,59 @@ export default function FeederPointsPage() {
     }
   }
 
+  const handleExportExcel = () => {
+    const exportData = filteredFeederPoints.map((fp: any, index: number) => {
+      const zone = allZones.find((z: Zone) => z.id === fp.zoneId)
+      const ward = allWards.find((w: Ward) => w.id === fp.wardId)
+      const kothi = allKothis.find((k: Kothi) => k.id === fp.kothiId)
+
+      return {
+        Sr_No: index + 1,
+        Feeder_Point_Name: fp.name || '',
+        Feeder_Point_ID: fp.id || '',
+        Zone: zone?.name || '',
+        Ward: ward?.name || '',
+        Kothi: kothi?.name || '',
+        Status: fp.status || '',
+        Priority: fp.priority || '',
+        Address:
+          fp.location?.address ||
+          fp.address ||
+          '',
+        Latitude: fp.location?.latitude || '',
+        Longitude: fp.location?.longitude || '',
+        Assignment: fp.assignmentDetails?.name || 'Unassigned',
+        Assignment_Type: fp.assignmentDetails?.type || '',
+        Eliminated: fp.isEliminated ? 'Yes' : 'No',
+      }
+    })
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData)
+
+    const workbook = XLSX.utils.book_new()
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      'Feeder Points'
+    )
+
+    const excelBuffer = XLSX.write(workbook, {
+      bookType: 'xlsx',
+      type: 'array',
+    })
+
+    const fileData = new Blob([excelBuffer], {
+      type:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8',
+    })
+
+    saveAs(
+      fileData,
+      `FeederPoints_${new Date().getTime()}.xlsx`
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -639,9 +694,19 @@ export default function FeederPointsPage() {
             <h2 className="text-lg font-semibold text-gray-900">
               Feeder Points ({filteredFeederPoints.length})
             </h2>
-            <div className="flex items-center space-x-2 text-sm text-gray-500">
-              <Activity className="h-4 w-4" />
-              <span>Real-time data</span>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleExportExcel}
+                className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
+              >
+                Download Excel
+              </button>
+
+              <div className="flex items-center space-x-2 text-sm text-gray-500">
+                <Activity className="h-4 w-4" />
+                <span>Real-time data</span>
+              </div>
             </div>
           </div>
 
