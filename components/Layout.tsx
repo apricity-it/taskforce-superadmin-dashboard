@@ -7,6 +7,7 @@ import {
   FileText, BarChart3, Sparkles, ClipboardCheck, UserPlus,
   Database, RefreshCw, ClipboardList, ChevronRight,
   Search, Sun, Moon, Zap,
+  LineChartIcon,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import NotificationBell, { MissingReportBadge } from '@/components/NotificationBell'
@@ -23,6 +24,7 @@ const allNavigation = [
   { name: 'Access Requests', href: '/access-requests', icon: UserCheck, roles: ['superadmin', 'qc', 'pmc_member'] },
   { name: 'Feeder Points', href: '/feeder-points', icon: Activity, roles: ['superadmin', 'qc', 'pmc_member'] },
   { name: 'Chronic Points', href: '/chronic-points', icon: Zap, roles: ['superadmin', 'qc', 'pmc_member'] },
+  { name: 'Chronic Monitoring', href: '/chronic-monitoring', icon: LineChartIcon, roles: ['superadmin', 'qc'] },
   { name: 'Feeder Point Requests', href: '/feeder-point-requests', icon: MapPin, roles: ['superadmin', 'qc', 'pmc_member'] },
   { name: 'Frequency Requests', href: '/frequency-requests', icon: RefreshCw, roles: ['superadmin', 'qc'] },
   { name: 'Daily Reports', href: '/daily-reports', icon: FileText, roles: ['superadmin', 'qc', 'pmc_member'] },
