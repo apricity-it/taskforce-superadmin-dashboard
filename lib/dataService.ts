@@ -1,4 +1,8 @@
-import { collection, getDocs, getDoc, doc, updateDoc, deleteDoc, query, orderBy, limit, where, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import {
+  collection, getDocs, getDoc, doc, updateDoc, deleteDoc,
+  query, orderBy, limit, where, setDoc, onSnapshot,
+  serverTimestamp, getCountFromServer, QueryConstraint
+} from 'firebase/firestore';
 import { db } from './firebase';
 
 export interface DashboardStats {
@@ -13,12 +17,10 @@ export interface DashboardStats {
   totalShiftReports: number;
   totalTeams: number;
   totalIPRecords: number;
-  // Role-based statistics
   adminUsers: number;
   taskForceUsers: number;
   commissionerUsers: number;
   inactiveUsers: number;
-  // Additional role-based metrics
   activeAdmins: number;
   activeTaskForce: number;
   activeCommissioners: number;
@@ -51,13 +53,9 @@ export interface ComplianceReport {
   userName: string;
   teamId: string;
   teamName: string;
-  submittedAt: any; // Firestore timestamp
-  submittedLocation: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  distanceFromFeederPoint: number; // in meters
+  submittedAt: any;
+  submittedLocation: { latitude: number; longitude: number; address: string };
+  distanceFromFeederPoint: number;
   status: 'pending' | 'approved' | 'rejected' | 'requires_action' | 'action_taken';
   answers: ComplianceAnswer[];
   adminNotes?: string;
@@ -67,9 +65,9 @@ export interface ComplianceReport {
   reviewedAt?: any;
   createdAt: any;
   updatedAt: any;
-  tripNumber: 1 | 2 | 3; // Which trip of the day (1st, 2nd, or 3rd)
-  tripDate: string; // Date in YYYY-MM-DD format for daily tracking
-  dailyTripId: string; // Unique identifier for the day's trips (userId_feederPointId_date)
+  tripNumber: 1 | 2 | 3;
+  tripDate: string;
+  dailyTripId: string;
   feederPointType?: 'feeder' | 'chronic';
   aiAnalysis?: string;
   ministryReport?: string;
@@ -84,7 +82,7 @@ export interface ComplianceAnswer {
   description: string;
   questionId: string;
   answer: 'yes' | 'no' | string;
-  photos?: string[]; // Array of photo URLs
+  photos?: string[];
   notes?: string;
 }
 
@@ -170,22 +168,22 @@ export interface FeederPoint {
   id: string;
   name: string;
   assignedUserId?: string;
+  assignedUserIds?: string[];
   assignedTeamId?: string;
   kothiId?: string;
   kothiName?: string;
-  isEliminated?: boolean
+  wardId?: string;
+  wardName?: string;
+  zoneId?: string;
+  zoneName?: string;
+  isEliminated?: boolean;
   status: 'active' | 'maintenance' | 'inactive';
-  location: {
-    address: string;
-    latitude: number;
-    longitude: number;
-  };
+  location: { address: string; latitude: number; longitude: number };
   priority: 'high' | 'medium' | 'low';
-  lastInspection?: any; // Firestore timestamp
-  type?: 'feeder' | 'chronic'
-  convertedToChronicAt?: any
-  convertedToChronicBy?: string
-
+  lastInspection?: any;
+  type?: 'feeder' | 'chronic';
+  convertedToChronicAt?: any;
+  convertedToChronicBy?: string;
 }
 
 export interface FeederPointRequest {
@@ -194,10 +192,7 @@ export interface FeederPointRequest {
   userName?: string;
   userEmail?: string;
   userPhone?: string;
-  coordinates?: {
-    latitude: number;
-    longitude: number;
-  };
+  coordinates?: { latitude: number; longitude: number };
   areaName?: string;
   areaDescription?: string;
   zoneNumber?: string;
@@ -223,35 +218,32 @@ export interface FeederPointRequest {
 }
 
 export interface ShiftSlot {
-  slotNumber: number
-  label: string
-  startHour: number
-  startMinute: number
-  endHour: number
-  endMinute: number
-  status: 'pending' | 'active' | 'completed' | 'missed' | 'late'
-  photoUrl?: string
-  timestamp?: any
-  location?: {
-    latitude: number
-    longitude: number
-  }
+  slotNumber: number;
+  label: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  status: 'pending' | 'active' | 'completed' | 'missed' | 'late';
+  photoUrl?: string;
+  timestamp?: any;
+  location?: { latitude: number; longitude: number };
 }
 
 export interface ShiftReport {
-  id: string
-  userId: string
-  userName: string
-  feederPointId: string
-  feederPointName: string
-  shiftType: '7PM-3AM' | '3AM-11AM' | '12:30PM-8:30PM'
-  shiftDate: string
-  slots: ShiftSlot[]
-  startedAt: any
-  completedAt?: any
-  status: 'in_progress' | 'completed'
-  createdAt: any
-  updatedAt: any
+  id: string;
+  userId: string;
+  userName: string;
+  feederPointId: string;
+  feederPointName: string;
+  shiftType: '7PM-3AM' | '3AM-11AM' | '12:30PM-8:30PM' | '11PM-7AM' | '3PM-11PM';
+  shiftDate: string;
+  slots: ShiftSlot[] | Record<string, ShiftSlot>;
+  startedAt: any;
+  completedAt?: any;
+  status: 'in_progress' | 'completed';
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface Zone {
@@ -291,18 +283,11 @@ export interface Assignment {
   createdAt?: any;
 }
 
-
 export class DataService {
   private static coerceDate(value: any): Date | null {
-    if (!value) {
-      return null;
-    }
-    if (value instanceof Date) {
-      return value;
-    }
-    if (typeof value.toDate === 'function') {
-      return value.toDate();
-    }
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value.toDate === 'function') return value.toDate();
     if (typeof value === 'string') {
       const parsed = new Date(value);
       return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -310,112 +295,84 @@ export class DataService {
     return null;
   }
 
-  // Get dashboard statistics
   static async getDashboardStats(): Promise<DashboardStats> {
     try {
+      const au = collection(db, 'approvedUsers');
+      const cr = collection(db, 'complianceReports');
+      const fp = collection(db, 'feederPoints');
+
       const [
-        usersSnapshot,
-        activeUsersSnapshot,
-        pendingRequestsSnapshot,
-        complaintsSnapshot,
-        inspectionsSnapshot,
-        feederPointsSnapshot,
-        teamsSnapshot,
-        ipRecordsSnapshot,
-        shiftReportsSnapshot
-      ] = await Promise.all([
-        getDocs(collection(db, 'approvedUsers')),
-        getDocs(query(collection(db, 'approvedUsers'), where('isActive', '==', true))),
-        getDocs(query(collection(db, 'accessRequests'), where('status', '==', 'pending'))),
-        getDocs(collection(db, 'complianceReports')),
-        getDocs(collection(db, 'inspections')),
-        getDocs(collection(db, 'feederPoints')),
-        getDocs(collection(db, 'teams')),
-        getDocs(collection(db, 'ipRecords')),
-        getDocs(collection(db, 'shiftReports'))
-      ]);
-
-      const feederPoints = feederPointsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as FeederPoint[];
-
-      const feederOnly = feederPoints.filter(
-        fp => (fp.type ?? 'feeder') === 'feeder'
-      );
-
-      const chronicOnly = feederPoints.filter(
-        fp => fp.type === 'chronic'
-      );
-
-      const eliminatedPoints = feederPoints.filter(
-        fp => fp.isEliminated === true
-      );
-
-      const allUsers = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as User));
-
-      const activeUsers = activeUsersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as User));
-
-      const adminUsers = allUsers.filter(user => user.role === 'admin').length;
-      const taskForceUsers = allUsers.filter(user => user.role === 'task_force_team').length;
-      const commissionerUsers = allUsers.filter(user => user.role === 'commissioner').length;
-      const inactiveUsers = allUsers.filter(user => !user.isActive).length;
-
-      const activeAdmins = activeUsers.filter(user => user.role === 'admin').length;
-      const activeTaskForce = activeUsers.filter(user => user.role === 'task_force_team').length;
-      const activeCommissioners = activeUsers.filter(user => user.role === 'commissioner').length;
-
-      return {
-        totalUsers: usersSnapshot.size,
-        activeUsers: activeUsersSnapshot.size,
-        pendingRequests: pendingRequestsSnapshot.size,
-        totalComplaints: complaintsSnapshot.size,
-        totalInspections: inspectionsSnapshot.size,
-        totalFeederPoints: feederOnly.length,
-        totalChronicPoints: chronicOnly.length,
-        totalEliminatedPoints: eliminatedPoints.length,
-        totalShiftReports: shiftReportsSnapshot.size,
-        totalTeams: teamsSnapshot.size,
-        totalIPRecords: ipRecordsSnapshot.size,
+        totalUsers,
+        activeUsers,
+        pendingRequests,
+        totalComplaints,
+        totalInspections,
+        totalFeederPoints,
+        totalChronicPoints,
+        totalEliminatedPoints,
+        totalShiftReports,
+        totalTeams,
+        totalIPRecords,
         adminUsers,
         taskForceUsers,
         commissionerUsers,
         inactiveUsers,
         activeAdmins,
         activeTaskForce,
-        activeCommissioners
+        activeCommissioners,
+      ] = await Promise.all([
+        getCountFromServer(au),
+        getCountFromServer(query(au, where('isActive', '==', true))),
+        getCountFromServer(query(collection(db, 'accessRequests'), where('status', '==', 'pending'))),
+        getCountFromServer(collection(db, 'complaints')),
+        getCountFromServer(collection(db, 'inspections')),
+        getCountFromServer(query(fp, where('type', '==', 'feeder'))),
+        getCountFromServer(query(fp, where('type', '==', 'chronic'))),
+        getCountFromServer(query(fp, where('isEliminated', '==', true))),
+        getCountFromServer(collection(db, 'shiftReports')),
+        getCountFromServer(collection(db, 'teams')),
+        getCountFromServer(collection(db, 'ipRecords')),
+        getCountFromServer(query(au, where('role', '==', 'admin'))),
+        getCountFromServer(query(au, where('role', '==', 'task_force_team'))),
+        getCountFromServer(query(au, where('role', '==', 'commissioner'))),
+        getCountFromServer(query(au, where('isActive', '==', false))),
+        getCountFromServer(query(au, where('role', '==', 'admin'), where('isActive', '==', true))),
+        getCountFromServer(query(au, where('role', '==', 'task_force_team'), where('isActive', '==', true))),
+        getCountFromServer(query(au, where('role', '==', 'commissioner'), where('isActive', '==', true))),
+      ]);
+
+      return {
+        totalUsers: totalUsers.data().count,
+        activeUsers: activeUsers.data().count,
+        pendingRequests: pendingRequests.data().count,
+        totalComplaints: totalComplaints.data().count,
+        totalInspections: totalInspections.data().count,
+        totalFeederPoints: totalFeederPoints.data().count,
+        totalChronicPoints: totalChronicPoints.data().count,
+        totalEliminatedPoints: totalEliminatedPoints.data().count,
+        totalShiftReports: totalShiftReports.data().count,
+        totalTeams: totalTeams.data().count,
+        totalIPRecords: totalIPRecords.data().count,
+        adminUsers: adminUsers.data().count,
+        taskForceUsers: taskForceUsers.data().count,
+        commissionerUsers: commissionerUsers.data().count,
+        inactiveUsers: inactiveUsers.data().count,
+        activeAdmins: activeAdmins.data().count,
+        activeTaskForce: activeTaskForce.data().count,
+        activeCommissioners: activeCommissioners.data().count,
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
-
       return {
-        totalUsers: 0,
-        activeUsers: 0,
-        pendingRequests: 0,
-        totalComplaints: 0,
-        totalInspections: 0,
-        totalFeederPoints: 0,
-        totalChronicPoints: 0,
-        totalEliminatedPoints: 0,
-        totalShiftReports: 0,
-        totalTeams: 0,
-        totalIPRecords: 0,
-        adminUsers: 0,
-        taskForceUsers: 0,
-        commissionerUsers: 0,
-        inactiveUsers: 0,
-        activeAdmins: 0,
-        activeTaskForce: 0,
-        activeCommissioners: 0
+        totalUsers: 0, activeUsers: 0, pendingRequests: 0, totalComplaints: 0,
+        totalInspections: 0, totalFeederPoints: 0, totalChronicPoints: 0,
+        totalEliminatedPoints: 0, totalShiftReports: 0, totalTeams: 0,
+        totalIPRecords: 0, adminUsers: 0, taskForceUsers: 0, commissionerUsers: 0,
+        inactiveUsers: 0, activeAdmins: 0, activeTaskForce: 0, activeCommissioners: 0,
       };
     }
   }
+
   static async getEmployeePerformance(options?: {
     role?: string;
     startDate?: Date;
@@ -427,32 +384,24 @@ export class DataService {
     const endDate = options?.endDate ? new Date(options.endDate) : null;
     const includeInactive = options?.includeInactive ?? false;
 
-    if (startDate && endDate && startDate > endDate) {
-      return [];
-    }
+    if (startDate && endDate && startDate > endDate) return [];
 
     try {
+      const userConstraints: QueryConstraint[] = [];
+      if (roleFilter) userConstraints.push(where('role', '==', roleFilter));
+      if (!includeInactive) userConstraints.push(where('isActive', '==', true));
+
       const [usersSnapshot, reportsSnapshot] = await Promise.all([
-        getDocs(collection(db, 'approvedUsers')),
-        getDocs(collection(db, 'complianceReports'))
+        getDocs(query(collection(db, 'approvedUsers'), ...userConstraints)),
+        getDocs(collection(db, 'complianceReports')),
       ]);
 
-      const users = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as User));
-
+      const users = usersSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
       const performanceByUser = new Map<string, EmployeePerformance>();
       const userEmailIndex = new Map<string, string>();
       const userNameIndex = new Map<string, string>();
 
       users.forEach(user => {
-        if (roleFilter && user.role !== roleFilter) {
-          return;
-        }
-        if (!includeInactive && user.isActive === false) {
-          return;
-        }
         performanceByUser.set(user.id, {
           userId: user.id,
           name: user.name || 'Unknown User',
@@ -463,41 +412,26 @@ export class DataService {
           rejectedReports: 0,
           pendingReports: 0,
           approvalRate: 0,
-          lastReportAt: null
+          lastReportAt: null,
         });
-
-        if (user.email) {
-          userEmailIndex.set(user.email.toLowerCase(), user.id);
-        }
-        if (user.name) {
-          userNameIndex.set(user.name.toLowerCase(), user.id);
-        }
+        if (user.email) userEmailIndex.set(user.email.toLowerCase(), user.id);
+        if (user.name) userNameIndex.set(user.name.toLowerCase(), user.id);
       });
 
       reportsSnapshot.docs.forEach(reportDoc => {
         const report = reportDoc.data() as ComplianceReport;
-        const coalescedUserId = typeof report.userId === 'string' ? report.userId.trim() : report.userId || undefined;
-        let stats = coalescedUserId ? performanceByUser.get(coalescedUserId) : undefined;
+        const uid = typeof report.userId === 'string' ? report.userId.trim() : undefined;
+        let stats = uid ? performanceByUser.get(uid) : undefined;
 
         if (!stats && report.submittedBy) {
-          const emailKey = String(report.submittedBy).trim().toLowerCase();
-          const emailMatch = userEmailIndex.get(emailKey);
-          if (emailMatch) {
-            stats = performanceByUser.get(emailMatch);
-          }
+          const match = userEmailIndex.get(String(report.submittedBy).trim().toLowerCase());
+          if (match) stats = performanceByUser.get(match);
         }
-
         if (!stats && report.userName) {
-          const nameKey = String(report.userName).trim().toLowerCase();
-          const nameMatch = userNameIndex.get(nameKey);
-          if (nameMatch) {
-            stats = performanceByUser.get(nameMatch);
-          }
+          const match = userNameIndex.get(String(report.userName).trim().toLowerCase());
+          if (match) stats = performanceByUser.get(match);
         }
-
-        if (!stats) {
-          return;
-        }
+        if (!stats) return;
 
         const reportDate =
           DataService.coerceDate(report.submittedAt) ||
@@ -505,37 +439,23 @@ export class DataService {
           DataService.coerceDate(report.createdAt) ||
           DataService.coerceDate(report.tripDate);
 
-        if (startDate && reportDate && reportDate < startDate) {
-          return;
-        }
-        if (endDate && reportDate && reportDate > endDate) {
-          return;
-        }
-
-        if (!reportDate && (startDate || endDate)) {
-          return;
-        }
+        if (startDate && reportDate && reportDate < startDate) return;
+        if (endDate && reportDate && reportDate > endDate) return;
+        if (!reportDate && (startDate || endDate)) return;
 
         stats.totalReports += 1;
-
-        if (report.status === 'approved') {
-          stats.approvedReports += 1;
-        } else if (report.status === 'rejected') {
-          stats.rejectedReports += 1;
-        } else {
-          stats.pendingReports += 1;
-        }
+        if (report.status === 'approved') stats.approvedReports += 1;
+        else if (report.status === 'rejected') stats.rejectedReports += 1;
+        else stats.pendingReports += 1;
 
         if (reportDate && (!stats.lastReportAt || reportDate > stats.lastReportAt)) {
           stats.lastReportAt = reportDate;
         }
       });
 
-      return Array.from(performanceByUser.values()).map(performance => ({
-        ...performance,
-        approvalRate: performance.totalReports
-          ? performance.approvedReports / performance.totalReports
-          : 0
+      return Array.from(performanceByUser.values()).map(p => ({
+        ...p,
+        approvalRate: p.totalReports ? p.approvedReports / p.totalReports : 0,
       }));
     } catch (error) {
       console.error('Error fetching employee performance:', error);
@@ -549,110 +469,55 @@ export class DataService {
   ): Promise<ComplianceReport[]> {
     const startDate = options?.startDate ? new Date(options.startDate) : null;
     const endDate = options?.endDate ? new Date(options.endDate) : null;
-
     const reportsMap = new Map<string, ComplianceReport>();
 
+    const applyDateFilter = (report: ComplianceReport): boolean => {
+      const reportDate =
+        DataService.coerceDate(report.submittedAt) ||
+        DataService.coerceDate(report.updatedAt) ||
+        DataService.coerceDate(report.createdAt) ||
+        DataService.coerceDate(report.tripDate);
+      if (!reportDate && (startDate || endDate)) return false;
+      if (startDate && reportDate && reportDate < startDate) return false;
+      if (endDate && reportDate && reportDate > endDate) return false;
+      return true;
+    };
+
     const collectReports = (snapshot: any) => {
-      snapshot.docs.forEach((docSnapshot: any) => {
-        const data = docSnapshot.data();
-        const report = { ...data, id: docSnapshot.id } as ComplianceReport;
-
-        const reportDate =
-          DataService.coerceDate(report.submittedAt) ||
-          DataService.coerceDate(report.updatedAt) ||
-          DataService.coerceDate(report.createdAt) ||
-          DataService.coerceDate(report.tripDate);
-
-        if (startDate && reportDate && reportDate < startDate) {
-          return;
-        }
-        if (endDate && reportDate && reportDate > endDate) {
-          return;
-        }
-        if (!reportDate && (startDate || endDate)) {
-          return;
-        }
-
-        reportsMap.set(report.id, report);
+      snapshot.docs.forEach((d: any) => {
+        const report = { id: d.id, ...d.data() } as ComplianceReport;
+        if (applyDateFilter(report)) reportsMap.set(report.id, report);
       });
     };
 
     if (userId) {
-      const q = query(collection(db, 'complianceReports'), where('userId', '==', userId));
-      const snapshot = await getDocs(q);
-      collectReports(snapshot);
+      collectReports(await getDocs(query(collection(db, 'complianceReports'), where('userId', '==', userId))));
     }
-
     if (reportsMap.size === 0 && options?.userEmail) {
-      const emailQuery = query(
-        collection(db, 'complianceReports'),
-        where('submittedBy', '==', options.userEmail)
-      );
-      const snapshot = await getDocs(emailQuery);
-      collectReports(snapshot);
+      collectReports(await getDocs(query(collection(db, 'complianceReports'), where('submittedBy', '==', options.userEmail))));
     }
-
     if (reportsMap.size === 0 && options?.userName) {
-      const nameQuery = query(
-        collection(db, 'complianceReports'),
-        where('userName', '==', options.userName)
-      );
-      const snapshot = await getDocs(nameQuery);
-      collectReports(snapshot);
+      collectReports(await getDocs(query(collection(db, 'complianceReports'), where('userName', '==', options.userName))));
     }
-
     if (reportsMap.size === 0) {
       const snapshot = await getDocs(collection(db, 'complianceReports'));
-      snapshot.docs.forEach(docSnapshot => {
-        const data = docSnapshot.data() as ComplianceReport;
-
-        const matchesUser =
+      snapshot.docs.forEach(d => {
+        const data = d.data() as ComplianceReport;
+        const matches =
           data.userId === userId ||
           (options?.userEmail && data.submittedBy === options.userEmail) ||
           (options?.userName && data.userName === options.userName);
-
-        if (!matchesUser) {
-          return;
-        }
-
-        const report = { ...data, id: docSnapshot.id } as ComplianceReport;
-
-        const reportDate =
-          DataService.coerceDate(report.submittedAt) ||
-          DataService.coerceDate(report.updatedAt) ||
-          DataService.coerceDate(report.createdAt) ||
-          DataService.coerceDate(report.tripDate);
-
-        if (startDate && reportDate && reportDate < startDate) {
-          return;
-        }
-        if (endDate && reportDate && reportDate > endDate) {
-          return;
-        }
-        if (!reportDate && (startDate || endDate)) {
-          return;
-        }
-
-        reportsMap.set(report.id, report);
+        if (!matches) return;
+                const report = { ...data, id: d.id } as ComplianceReport;
+        if (applyDateFilter(report)) reportsMap.set(report.id, report);
       });
     }
 
-    const reports = Array.from(reportsMap.values()).sort((a, b) => {
-      const aDate =
-        DataService.coerceDate(a.submittedAt) ||
-        DataService.coerceDate(a.updatedAt) ||
-        DataService.coerceDate(a.createdAt);
-      const bDate =
-        DataService.coerceDate(b.submittedAt) ||
-        DataService.coerceDate(b.updatedAt) ||
-        DataService.coerceDate(b.createdAt);
-
-      const aTime = aDate ? aDate.getTime() : 0;
-      const bTime = bDate ? bDate.getTime() : 0;
-      return bTime - aTime;
+    return Array.from(reportsMap.values()).sort((a, b) => {
+      const aT = (DataService.coerceDate(a.submittedAt) || DataService.coerceDate(a.updatedAt) || DataService.coerceDate(a.createdAt))?.getTime() ?? 0;
+      const bT = (DataService.coerceDate(b.submittedAt) || DataService.coerceDate(b.updatedAt) || DataService.coerceDate(b.createdAt))?.getTime() ?? 0;
+      return bT - aT;
     });
-
-    return reports;
   }
 
   static async getFeederPointSummaries(options?: {
@@ -661,30 +526,19 @@ export class DataService {
   }): Promise<FeederPointSummary[]> {
     const startDate = options?.startDate ? new Date(options.startDate) : null;
     const endDate = options?.endDate ? new Date(options.endDate) : null;
-
     const snapshot = await getDocs(collection(db, 'complianceReports'));
-
     const summaries = new Map<string, FeederPointSummary>();
 
-    snapshot.docs.forEach(docSnapshot => {
-      const data = docSnapshot.data() as ComplianceReport;
-      const report = { ...data, id: docSnapshot.id } as ComplianceReport;
-
+    snapshot.docs.forEach(d => {
+      const report = { id: d.id, ...d.data() } as ComplianceReport;
       const reportDate =
         DataService.coerceDate(report.submittedAt) ||
         DataService.coerceDate(report.updatedAt) ||
         DataService.coerceDate(report.createdAt) ||
         DataService.coerceDate(report.tripDate);
-
-      if (startDate && reportDate && reportDate < startDate) {
-        return;
-      }
-      if (endDate && reportDate && reportDate > endDate) {
-        return;
-      }
-      if (!reportDate && (startDate || endDate)) {
-        return;
-      }
+      if (startDate && reportDate && reportDate < startDate) return;
+      if (endDate && reportDate && reportDate > endDate) return;
+      if (!reportDate && (startDate || endDate)) return;
 
       const key = report.feederPointId || report.feederPointName || 'unspecified';
       if (!summaries.has(key)) {
@@ -697,140 +551,77 @@ export class DataService {
           rejectedReports: 0,
           pendingReports: 0,
           lastReportAt: null,
-          reports: []
+          reports: [],
         });
       }
-
-      const summary = summaries.get(key)!;
-      summary.totalReports += 1;
-      summary.reports.push(report);
-
-      if (report.status === 'approved') {
-        summary.approvedReports += 1;
-      } else if (report.status === 'rejected') {
-        summary.rejectedReports += 1;
-      } else {
-        summary.pendingReports += 1;
-      }
-
-      if (reportDate && (!summary.lastReportAt || reportDate > summary.lastReportAt)) {
-        summary.lastReportAt = reportDate;
-      }
+      const s = summaries.get(key)!;
+      s.totalReports += 1;
+      s.reports.push(report);
+      if (report.status === 'approved') s.approvedReports += 1;
+      else if (report.status === 'rejected') s.rejectedReports += 1;
+      else s.pendingReports += 1;
+      if (reportDate && (!s.lastReportAt || reportDate > s.lastReportAt)) s.lastReportAt = reportDate;
     });
 
-    const results = Array.from(summaries.values()).map(summary => {
-      summary.reports.sort((a, b) => {
-        const aDate =
-          DataService.coerceDate(a.submittedAt) ||
-          DataService.coerceDate(a.updatedAt) ||
-          DataService.coerceDate(a.createdAt);
-        const bDate =
-          DataService.coerceDate(b.submittedAt) ||
-          DataService.coerceDate(b.updatedAt) ||
-          DataService.coerceDate(b.createdAt);
-        const aTime = aDate ? aDate.getTime() : 0;
-        const bTime = bDate ? bDate.getTime() : 0;
-        return bTime - aTime;
-      });
-      return summary;
-    });
-
-    return results.sort((a, b) => b.totalReports - a.totalReports);
+    return Array.from(summaries.values())
+      .map(s => {
+        s.reports.sort((a, b) => {
+          const aT = (DataService.coerceDate(a.submittedAt) || DataService.coerceDate(a.updatedAt) || DataService.coerceDate(a.createdAt))?.getTime() ?? 0;
+          const bT = (DataService.coerceDate(b.submittedAt) || DataService.coerceDate(b.updatedAt) || DataService.coerceDate(b.createdAt))?.getTime() ?? 0;
+          return bT - aT;
+        });
+        return s;
+      })
+      .sort((a, b) => b.totalReports - a.totalReports);
   }
 
   static async getFeederPointReports(feederPointId?: string, feederPointName?: string): Promise<ComplianceReport[]> {
-    if (!feederPointId && !feederPointName) {
-      return [];
-    }
-
+    if (!feederPointId && !feederPointName) return [];
     const queries = [];
-    if (feederPointId) {
-      queries.push(query(collection(db, 'complianceReports'), where('feederPointId', '==', feederPointId)));
-    }
-    if (feederPointName) {
-      queries.push(query(collection(db, 'complianceReports'), where('feederPointName', '==', feederPointName)));
-    }
+    if (feederPointId) queries.push(query(collection(db, 'complianceReports'), where('feederPointId', '==', feederPointId)));
+    if (feederPointName) queries.push(query(collection(db, 'complianceReports'), where('feederPointName', '==', feederPointName)));
 
     const reportsMap = new Map<string, ComplianceReport>();
-    for (const qRef of queries) {
-      const snapshot = await getDocs(qRef);
-      snapshot.docs.forEach(docSnapshot => {
-        const reportId = docSnapshot.id;
-        if (!reportsMap.has(reportId)) {
-          reportsMap.set(reportId, { id: reportId, ...docSnapshot.data() } as ComplianceReport);
-        }
+    for (const q of queries) {
+      const snapshot = await getDocs(q);
+      snapshot.docs.forEach(d => {
+        if (!reportsMap.has(d.id)) reportsMap.set(d.id, { id: d.id, ...d.data() } as ComplianceReport);
       });
     }
-
-    const combined = Array.from(reportsMap.values());
-    return combined.sort((a, b) => {
-      const aDate =
-        DataService.coerceDate(a.submittedAt) ||
-        DataService.coerceDate(a.updatedAt) ||
-        DataService.coerceDate(a.createdAt);
-      const bDate =
-        DataService.coerceDate(b.submittedAt) ||
-        DataService.coerceDate(b.updatedAt) ||
-        DataService.coerceDate(b.createdAt);
-      const aTime = aDate ? aDate.getTime() : 0;
-      const bTime = bDate ? bDate.getTime() : 0;
-      return bTime - aTime;
+    return Array.from(reportsMap.values()).sort((a, b) => {
+      const aT = (DataService.coerceDate(a.submittedAt) || DataService.coerceDate(a.updatedAt) || DataService.coerceDate(a.createdAt))?.getTime() ?? 0;
+      const bT = (DataService.coerceDate(b.submittedAt) || DataService.coerceDate(b.updatedAt) || DataService.coerceDate(b.createdAt))?.getTime() ?? 0;
+      return bT - aT;
     });
   }
 
-  // Get all users
   static onUsersChange(callback: (users: User[]) => void) {
-    const q = query(collection(db, 'approvedUsers'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const users = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as User));
-      callback(users);
-    });
+    return onSnapshot(
+      query(collection(db, 'approvedUsers'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User)))
+    );
   }
 
   static async getAllUsers(): Promise<User[]> {
-    const q = query(collection(db, 'approvedUsers'));
-    const snapshot = await getDocs(q);
-    const users = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as User));
-    return users;
+    const snapshot = await getDocs(collection(db, 'approvedUsers'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
   }
 
   static async findUserByName(name: string): Promise<User | null> {
     const trimmedName = name.trim();
-    if (!trimmedName) {
-      return null;
-    }
+    if (!trimmedName) return null;
 
-    // Try exact, case-sensitive match first for efficiency
-    const exactQuery = query(
-      collection(db, 'approvedUsers'),
-      where('name', '==', trimmedName),
-      limit(1)
-    );
-    const exactSnapshot = await getDocs(exactQuery);
-    if (!exactSnapshot.empty) {
-      const userDoc = exactSnapshot.docs[0];
-      return { id: userDoc.id, ...userDoc.data() } as User;
-    }
+    const exactSnapshot = await getDocs(query(collection(db, 'approvedUsers'), where('name', '==', trimmedName), limit(1)));
+    if (!exactSnapshot.empty) return { id: exactSnapshot.docs[0].id, ...exactSnapshot.docs[0].data() } as User;
 
-    // Fall back to case-insensitive search by scanning the collection
     const normalizedTarget = trimmedName.toLowerCase();
     const snapshot = await getDocs(collection(db, 'approvedUsers'));
-    const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-
-    const caseInsensitiveMatch = users.find(user => (user.name || '').trim().toLowerCase() === normalizedTarget);
-    if (caseInsensitiveMatch) {
-      return caseInsensitiveMatch;
-    }
-
-    // Allow partial (contains) match as a last resort
-    const partialMatch = users.find(user => (user.name || '').toLowerCase().includes(normalizedTarget));
-    return partialMatch ?? null;
+    const users = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
+    return (
+      users.find(u => (u.name || '').trim().toLowerCase() === normalizedTarget) ||
+      users.find(u => (u.name || '').toLowerCase().includes(normalizedTarget)) ||
+      null
+    );
   }
 
   static async deletePmcEmployee(userId: string): Promise<void> {
@@ -847,15 +638,13 @@ export class DataService {
     createdBy?: string;
   }): Promise<void> {
     const userId = `pmc_${input.employeeCode || Date.now()}`;
-    const normalizedZone = String(input.zoneNumber).trim();
-
-    const payload: Omit<User, 'id'> = {
+    await setDoc(doc(db, 'approvedUsers', userId), {
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
       phone: input.phone.trim(),
       role: 'pmc_member',
       employeeCode: input.employeeCode.trim(),
-      zoneNumber: normalizedZone,
+      zoneNumber: String(input.zoneNumber).trim(),
       permissions: ['view_pmc_reports'],
       isActive: true,
       password: input.password,
@@ -863,101 +652,58 @@ export class DataService {
       approvedBy: input.createdBy || 'superadmin',
       createdAt: serverTimestamp(),
       lastLogin: null,
-    };
-
-    await setDoc(doc(db, 'approvedUsers', userId), payload);
+    } as Omit<User, 'id'>);
   }
 
   static onFeederPointRequestsChange(callback: (requests: FeederPointRequest[]) => void) {
-    const q = query(collection(db, 'feederPointRequests'), orderBy('submittedAt', 'desc'));
-    return onSnapshot(q, snapshot => {
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FeederPointRequest));
-      callback(requests);
-    });
+    return onSnapshot(
+      query(collection(db, 'feederPointRequests'), orderBy('submittedAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as FeederPointRequest)))
+    );
   }
 
   static async getFeederPointRequests(status?: 'pending' | 'approved' | 'rejected' | 'all'): Promise<FeederPointRequest[]> {
-    const qRef = query(collection(db, 'feederPointRequests'), orderBy('submittedAt', 'desc'));
-    const snapshot = await getDocs(qRef);
-    let requests = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FeederPointRequest));
-
-    if (status && status !== 'all') {
-      requests = requests.filter(request => request.status === status);
-    }
-    return requests;
+    const constraints: QueryConstraint[] = [orderBy('submittedAt', 'desc')];
+    if (status && status !== 'all') constraints.push(where('status', '==', status));
+    const snapshot = await getDocs(query(collection(db, 'feederPointRequests'), ...constraints));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as FeederPointRequest));
   }
 
   static async updateFeederPointRequest(id: string, data: Partial<FeederPointRequest>): Promise<void> {
-    const requestRef = doc(db, 'feederPointRequests', id);
-    await updateDoc(requestRef, {
-      ...data,
-      updatedAt: serverTimestamp()
-    });
+    await updateDoc(doc(db, 'feederPointRequests', id), { ...data, updatedAt: serverTimestamp() });
   }
 
-  // Get all access requests
   static onAccessRequestsChange(callback: (requests: AccessRequest[]) => void) {
-    const q = query(collection(db, 'accessRequests'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as AccessRequest));
-      callback(requests);
-    });
+    return onSnapshot(
+      query(collection(db, 'accessRequests'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest)))
+    );
   }
 
-  // Get all complaints
   static onComplaintsChange(callback: (complaints: Complaint[]) => void) {
-    const q = query(collection(db, 'complaints'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const complaints = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Complaint));
-      callback(complaints);
-    });
+    return onSnapshot(
+      query(collection(db, 'complaints'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)))
+    );
   }
 
   static async getAllComplaints(): Promise<Complaint[]> {
-    const q = query(collection(db, 'complaints'));
-    const snapshot = await getDocs(q);
-    const complaints = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Complaint));
-    return complaints;
+    const snapshot = await getDocs(collection(db, 'complaints'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Complaint));
   }
 
-  // Get all compliance reports
   static async getAllComplianceReports(): Promise<ComplianceReport[]> {
-    const q = query(collection(db, 'complianceReports'), orderBy('submittedAt', 'desc'));
-    const snapshot = await getDocs(q);
-    const reports = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as ComplianceReport));
-    return reports;
+    const snapshot = await getDocs(query(collection(db, 'complianceReports'), orderBy('submittedAt', 'desc')));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ComplianceReport));
   }
 
   static onComplianceReportsChange(callback: (reports: ComplianceReport[]) => void) {
-    const q = query(collection(db, 'complianceReports'), orderBy('submittedAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const reports = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as ComplianceReport));
-      callback(reports);
-    });
+    return onSnapshot(
+      query(collection(db, 'complianceReports'), orderBy('submittedAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ComplianceReport)))
+    );
   }
 
-  // Update compliance report status
   static async updateComplianceReportStatus(
     reportId: string,
     status: ComplianceReport['status'],
@@ -965,388 +711,242 @@ export class DataService {
     reviewedBy?: string,
     extra?: Partial<Pick<ComplianceReport, 'actionTakenNote' | 'actionTakenPhoto'>>
   ): Promise<void> {
-    try {
-      const updateData: any = {
-        status,
-        reviewedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      if (adminNotes) {
-        updateData.adminNotes = adminNotes;
-      }
-      if (reviewedBy) {
-        updateData.reviewedBy = reviewedBy;
-      }
-      if (extra?.actionTakenNote) {
-        updateData.actionTakenNote = extra.actionTakenNote;
-      }
-      if (extra?.actionTakenPhoto) {
-        updateData.actionTakenPhoto = extra.actionTakenPhoto;
-      }
-
-      await updateDoc(doc(db, 'complianceReports', reportId), updateData);
-
-      console.log('✅ Compliance report status updated:', reportId, status);
-    } catch (error) {
-      console.error('❌ Error updating compliance report status:', error);
-      throw error;
-    }
+    const updateData: any = { status, reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    if (adminNotes) updateData.adminNotes = adminNotes;
+    if (reviewedBy) updateData.reviewedBy = reviewedBy;
+    if (extra?.actionTakenNote) updateData.actionTakenNote = extra.actionTakenNote;
+    if (extra?.actionTakenPhoto) updateData.actionTakenPhoto = extra.actionTakenPhoto;
+    await updateDoc(doc(db, 'complianceReports', reportId), updateData);
   }
 
-  // Get all IP records
   static onIPRecordsChange(callback: (records: IPRecord[]) => void) {
-    const q = query(collection(db, 'ipRecords'), orderBy('registeredAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const records = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as IPRecord));
-      callback(records);
-    });
+    return onSnapshot(
+      query(collection(db, 'ipRecords'), orderBy('registeredAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as IPRecord)))
+    );
   }
 
-  // Get all feeder points
   static onFeederPointsChange(callback: (points: FeederPoint[]) => void) {
-    const q = query(collection(db, 'feederPoints'));
-    return onSnapshot(q, (snapshot) => {
-      const points = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FeederPoint));
-      callback(points);
-    });
+    return onSnapshot(
+      query(collection(db, 'feederPoints')),
+      snapshot => callback(snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        type: (d.data().type ?? 'feeder') as 'feeder' | 'chronic',
+      } as FeederPoint)))
+    );
   }
 
   static async getAllFeederPoints(): Promise<FeederPoint[]> {
-    const q = query(collection(db, 'feederPoints'));
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      type: (doc.data().type ?? 'feeder') as 'feeder' | 'chronic'
-    })) as FeederPoint[];
+    const snapshot = await getDocs(collection(db, 'feederPoints'));
+    return snapshot.docs.map(d => ({
+      id: d.id,
+      ...d.data(),
+      type: (d.data().type ?? 'feeder') as 'feeder' | 'chronic',
+    } as FeederPoint));
   }
 
   static async getFeederPointsOnly(): Promise<FeederPoint[]> {
-    const points = await this.getAllFeederPoints();
+    const snapshot = await getDocs(query(collection(db, 'feederPoints'), where('type', '==', 'feeder')));
+    const legacySnapshot = await getDocs(
+      query(collection(db, 'feederPoints'), where('type', '==', null))
+    ).catch(() => ({ docs: [] as any[] }));
 
-    return points.filter(
-      point => (point.type ?? 'feeder') === 'feeder'
-    );
+    const map = new Map<string, FeederPoint>();
+    [...snapshot.docs, ...legacySnapshot.docs].forEach(d => {
+      map.set(d.id, { id: d.id, ...d.data(), type: 'feeder' } as FeederPoint);
+    });
+    return Array.from(map.values());
   }
 
   static async getChronicPoints(): Promise<FeederPoint[]> {
-    const points = await this.getAllFeederPoints();
-
-    return points.filter(
-      point => point.type === 'chronic'
-    );
+    const snapshot = await getDocs(query(collection(db, 'feederPoints'), where('type', '==', 'chronic')));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data(), type: 'chronic' } as FeederPoint));
   }
 
   static async getShiftReports(): Promise<ShiftReport[]> {
-    const q = query(
-      collection(db, 'shiftReports'),
-      orderBy('createdAt', 'desc')
-    );
-
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as ShiftReport[];
+    const snapshot = await getDocs(query(collection(db, 'shiftReports'), orderBy('createdAt', 'desc')));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ShiftReport));
   }
 
-  static async getShiftReportsByPoint(
-    feederPointId: string
-  ): Promise<ShiftReport[]> {
-    const q = query(
-      collection(db, 'shiftReports'),
-      where('feederPointId', '==', feederPointId),
-      orderBy('createdAt', 'desc')
+  static async getShiftReportsByPoint(feederPointId: string): Promise<ShiftReport[]> {
+    const snapshot = await getDocs(
+      query(collection(db, 'shiftReports'), where('feederPointId', '==', feederPointId), orderBy('createdAt', 'desc'))
     );
-
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as ShiftReport[];
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ShiftReport));
   }
 
-  static async getChronicComplianceReportsByPoint(
-    feederPointId: string
-  ): Promise<ComplianceReport[]> {
-    const q = query(
-      collection(db, 'complianceReports'),
-      where('feederPointId', '==', feederPointId)
+  static async getChronicComplianceReportsByPoint(feederPointId: string): Promise<ComplianceReport[]> {
+    const snapshot = await getDocs(
+      query(collection(db, 'complianceReports'), where('feederPointId', '==', feederPointId), where('feederPointType', '==', 'chronic'))
     );
-
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }) as ComplianceReport)
-      .filter(report => (report.feederPointType ?? 'feeder') === 'chronic');
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ComplianceReport));
   }
-  // Get all teams
+
   static onTeamsChange(callback: (teams: Team[]) => void) {
-    const q = query(collection(db, 'teams'));
-    return onSnapshot(q, (snapshot) => {
-      const teams = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Team));
-      callback(teams);
-    });
+    return onSnapshot(
+      query(collection(db, 'teams')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Team)))
+    );
   }
 
   static async updateFeederPoint(id: string, data: Partial<FeederPoint>): Promise<void> {
-    const feederPointRef = doc(db, 'feederPoints', id);
-    await updateDoc(feederPointRef, data);
+    await updateDoc(doc(db, 'feederPoints', id), data);
   }
 
   static async createFeederPoint(data: Partial<FeederPoint>): Promise<void> {
-    const feederPointsCollection = collection(db, 'feederPoints');
-    await setDoc(doc(feederPointsCollection), data, { merge: true });
+    await setDoc(doc(collection(db, 'feederPoints')), data, { merge: true });
   }
 
   static async deleteFeederPoint(id: string): Promise<void> {
-    const feederPointRef = doc(db, 'feederPoints', id);
-    await deleteDoc(feederPointRef);
+    await deleteDoc(doc(db, 'feederPoints', id));
   }
 
   static async deleteFeederPointAndReports(feederPointId?: string, feederPointName?: string): Promise<void> {
     const deletions: Promise<any>[] = [];
-
-    if (feederPointId) {
-      const feederPointRef = doc(db, 'feederPoints', feederPointId);
-      deletions.push(deleteDoc(feederPointRef));
-    }
+    if (feederPointId) deletions.push(deleteDoc(doc(db, 'feederPoints', feederPointId)));
 
     const reportQueries = [];
-    if (feederPointId) {
-      reportQueries.push(query(collection(db, 'complianceReports'), where('feederPointId', '==', feederPointId)));
-    }
-    if (feederPointName) {
-      reportQueries.push(query(collection(db, 'complianceReports'), where('feederPointName', '==', feederPointName)));
-    }
+    if (feederPointId) reportQueries.push(query(collection(db, 'complianceReports'), where('feederPointId', '==', feederPointId)));
+    if (feederPointName) reportQueries.push(query(collection(db, 'complianceReports'), where('feederPointName', '==', feederPointName)));
 
-    for (const qRef of reportQueries) {
-      const snap = await getDocs(qRef);
-      snap.forEach(docSnap => {
-        deletions.push(deleteDoc(doc(db, 'complianceReports', docSnap.id)));
-      });
+    for (const q of reportQueries) {
+      const snap = await getDocs(q);
+      snap.forEach(d => deletions.push(deleteDoc(doc(db, 'complianceReports', d.id))));
     }
-
     await Promise.all(deletions);
   }
 
   static async createSampleFeederPoints(): Promise<void> {
     const samplePoints = [
-      { name: 'FP-001', status: 'active', priority: 'high', location: { address: '123 Main St', latitude: 34.0522, longitude: -118.2437 } },
-      { name: 'FP-002', status: 'maintenance', priority: 'medium', location: { address: '456 Oak Ave', latitude: 34.0522, longitude: -118.2437 } },
-      { name: 'FP-003', status: 'inactive', priority: 'low', location: { address: '789 Pine Ln', latitude: 34.0522, longitude: -118.2437 } },
+      { name: 'FP-001', status: 'active', priority: 'high', type: 'feeder', location: { address: '123 Main St', latitude: 34.0522, longitude: -118.2437 } },
+      { name: 'FP-002', status: 'maintenance', priority: 'medium', type: 'feeder', location: { address: '456 Oak Ave', latitude: 34.0522, longitude: -118.2437 } },
+      { name: 'FP-003', status: 'inactive', priority: 'low', type: 'feeder', location: { address: '789 Pine Ln', latitude: 34.0522, longitude: -118.2437 } },
     ];
-
-    const feederPointsCollection = collection(db, 'feederPoints');
     for (const point of samplePoints) {
-      await setDoc(doc(feederPointsCollection), point);
+      await setDoc(doc(collection(db, 'feederPoints')), point);
     }
   }
 
   static async getRecentActivity(): Promise<any[]> {
     try {
-      const q = query(collection(db, 'recentActivity'), orderBy('timestamp', 'desc'), limit(10));
-      const snapshot = await getDocs(q);
-      const activity = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      return activity;
+      const snapshot = await getDocs(query(collection(db, 'recentActivity'), orderBy('timestamp', 'desc'), limit(10)));
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (error) {
       console.error('Error fetching recent activity:', error);
       return [];
     }
   }
 
-  // static async approveAccessRequest(request: AccessRequest): Promise<void> {
-  //   try {
-  //     const requestRef = doc(db, 'accessRequests', request.id);
-  //     await updateDoc(requestRef, {
-  //       status: 'approved',
-  //       reviewedAt: serverTimestamp(),
-  //       reviewedBy: 'AdminUserPlaceholder', // Replace with actual admin user ID/name
-  //       updatedAt: serverTimestamp()
-  //     });
-  //     console.log('✅ Access request approved:', request.id);
-  //   } catch (error) {
-  //     console.error('❌ Error approving access request:', error);
-  //     throw error;
-  //   }
-  // }
   static getRolePermissions(role: string): string[] {
     switch (role) {
-      case 'task_force_team':
-        return ['view_reports', 'create_reports'];
-      case 'commissioner':
-        return ['view_reports', 'approve_reports'];
-      case 'admin':
-        return ['manage_users', 'system_settings'];
-      default:
-        return [];
+      case 'task_force_team': return ['view_reports', 'create_reports'];
+      case 'commissioner': return ['view_reports', 'approve_reports'];
+      case 'admin': return ['manage_users', 'system_settings'];
+      default: return [];
     }
   }
+
   static async approveAccessRequest(request: AccessRequest): Promise<void> {
-    try {
-      const userId = request.email.toLowerCase();
+    const userId = request.email.toLowerCase();
+    const userRef = doc(db, 'approvedUsers', userId);
+    const existingUser = await getDoc(userRef);
+    if (existingUser.exists()) return;
 
-      const userRef = doc(db, 'approvedUsers', userId);
-      const existingUser = await getDoc(userRef);
+    const permissions = DataService.getRolePermissions(request.requestedRole);
+    await setDoc(userRef, {
+      id: userId,
+      name: request.name,
+      email: request.email.toLowerCase(),
+      phone: request.phone,
+      role: request.requestedRole,
+      organization: request.organization || null,
+      department: request.department || null,
+      permissions,
+      isActive: true,
+      isDeleted: false,
+      accountStatus: 'active',
+      approvedAt: serverTimestamp(),
+      approvedBy: 'AdminUserPlaceholder',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
 
-      if (existingUser.exists()) {
-        console.log('⚠️ User already exists');
-        return;
-      }
-
-      // ✅ FIXED LINE
-      const permissions = DataService.getRolePermissions(request.requestedRole);
-
-      // ✅ Step 1: Create user FIRST
-      await setDoc(userRef, {
-        id: userId,
-        name: request.name,
-        email: request.email.toLowerCase(), // 🔥 normalize
-        phone: request.phone,
-        role: request.requestedRole,
-        organization: request.organization || null,
-        department: request.department || null,
-        permissions,
-        isActive: true,
-        isDeleted: false,
-        accountStatus: 'active',
-        approvedAt: serverTimestamp(),
-        approvedBy: 'AdminUserPlaceholder',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      // ✅ Step 2: Update request
-      await updateDoc(doc(db, 'accessRequests', request.id), {
-        status: 'approved',
-        reviewedAt: serverTimestamp(),
-        reviewedBy: 'AdminUserPlaceholder',
-        updatedAt: serverTimestamp()
-      });
-
-      console.log('✅ User created & request approved:', request.email);
-
-    } catch (error) {
-      console.error('❌ Error approving access request:', error);
-      throw error;
-    }
+    await updateDoc(doc(db, 'accessRequests', request.id), {
+      status: 'approved',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: 'AdminUserPlaceholder',
+      updatedAt: serverTimestamp(),
+    });
   }
 
   static async rejectAccessRequest(requestId: string): Promise<void> {
-    try {
-      const requestRef = doc(db, 'accessRequests', requestId);
-      await updateDoc(requestRef, {
-        status: 'rejected',
-        reviewedAt: serverTimestamp(),
-        reviewedBy: 'AdminUserPlaceholder', // Replace with actual admin user ID/name
-        updatedAt: serverTimestamp()
-      });
-      console.log('✅ Access request rejected:', requestId);
-    } catch (error) {
-      console.error('❌ Error rejecting access request:', error);
-      throw error;
-    }
+    await updateDoc(doc(db, 'accessRequests', requestId), {
+      status: 'rejected',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: 'AdminUserPlaceholder',
+      updatedAt: serverTimestamp(),
+    });
   }
 
   static async updateComplaint(complaintId: string, complaint: Complaint): Promise<void> {
-    try {
-      const complaintRef = doc(db, 'complaints', complaintId);
-      await updateDoc(complaintRef, {
-        ...complaint,
-        updatedAt: serverTimestamp()
-      });
-      console.log('✅ Complaint updated:', complaintId);
-    } catch (error) {
-      console.error('❌ Error updating complaint:', error);
-      throw error;
-    }
+    await updateDoc(doc(db, 'complaints', complaintId), { ...complaint, updatedAt: serverTimestamp() });
   }
 
   static async deleteComplaint(complaintId: string): Promise<void> {
-    try {
-      await deleteDoc(doc(db, 'complaints', complaintId));
-      console.log('✅ Complaint deleted:', complaintId);
-    } catch (error) {
-      console.error('❌ Error deleting complaint:', error);
-      throw error;
-    }
+    await deleteDoc(doc(db, 'complaints', complaintId));
   }
 
   static async testDatabaseConnection(): Promise<boolean> {
     try {
-      console.log("Attempting to fetch collections from Firestore...");
-      const collections = await Promise.all([
-        getDocs(collection(db, 'approvedUsers')),
-        getDocs(collection(db, 'accessRequests')),
-        getDocs(collection(db, 'complianceReports')),
-        getDocs(collection(db, 'feederPoints')),
-        getDocs(collection(db, 'teams')),
+      await Promise.all([
+        getCountFromServer(collection(db, 'approvedUsers')),
+        getCountFromServer(collection(db, 'accessRequests')),
+        getCountFromServer(collection(db, 'complianceReports')),
+        getCountFromServer(collection(db, 'feederPoints')),
+        getCountFromServer(collection(db, 'teams')),
       ]);
-      console.log('Successfully fetched collections:');
-      console.log(`- approvedUsers: ${collections[0].size} documents`);
-      console.log(`- accessRequests: ${collections[1].size} documents`);
-      console.log(`- complianceReports: ${collections[2].size} documents`);
-      console.log(`- feederPoints: ${collections[3].size} documents`);
-      console.log(`- teams: ${collections[4].size} documents`);
       return true;
     } catch (error) {
-      console.error("Error testing database connection:", error);
+      console.error('Error testing database connection:', error);
       return false;
     }
   }
 
   static async getUserReports(userId: string): Promise<ComplianceReport[]> {
-    const q = query(collection(db, 'complianceReports'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ComplianceReport));
+    const snapshot = await getDocs(query(collection(db, 'complianceReports'), where('userId', '==', userId)));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ComplianceReport));
   }
 
   static async getUserFeederPoints(userId: string): Promise<FeederPoint[]> {
-    const q = query(collection(db, 'feederPoints'), where('assignedUserId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FeederPoint));
+    const [byUser, byUserIds] = await Promise.all([
+      getDocs(query(collection(db, 'feederPoints'), where('assignedUserId', '==', userId))),
+      getDocs(query(collection(db, 'feederPoints'), where('assignedUserIds', 'array-contains', userId))),
+    ]);
+    const map = new Map<string, FeederPoint>();
+    [...byUser.docs, ...byUserIds.docs].forEach(d => {
+      map.set(d.id, { id: d.id, ...d.data(), type: (d.data().type ?? 'feeder') as 'feeder' | 'chronic' } as FeederPoint);
+    });
+    return Array.from(map.values());
   }
 
   static async updateUser(id: string, data: Partial<User>): Promise<void> {
-    const userRef = doc(db, 'approvedUsers', id);
-    await updateDoc(userRef, data);
+    await updateDoc(doc(db, 'approvedUsers', id), data);
   }
 
   static async updateUserPassword(id: string, password: string): Promise<void> {
-    const userRef = doc(db, 'approvedUsers', id);
-    await updateDoc(userRef, { password });
+    await updateDoc(doc(db, 'approvedUsers', id), { password });
   }
 
   static async deleteUser(id: string): Promise<void> {
-    const userRef = doc(db, 'approvedUsers', id);
-    await deleteDoc(userRef);
+    await deleteDoc(doc(db, 'approvedUsers', id));
   }
 
-  // ── ZONES ──────────────────────────────────────────────────────────────────
   static onZonesChange(callback: (zones: Zone[]) => void) {
-    const q = query(collection(db, 'zones'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, snapshot => {
-      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Zone)));
-    });
+    return onSnapshot(
+      query(collection(db, 'zones'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Zone)))
+    );
   }
 
   static async createZone(data: Omit<Zone, 'id'>): Promise<void> {
@@ -1361,12 +961,11 @@ export class DataService {
     await deleteDoc(doc(db, 'zones', id));
   }
 
-  // ── WARDS ──────────────────────────────────────────────────────────────────
   static onWardsChange(callback: (wards: Ward[]) => void) {
-    const q = query(collection(db, 'wards'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, snapshot => {
-      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ward)));
-    });
+    return onSnapshot(
+      query(collection(db, 'wards'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Ward)))
+    );
   }
 
   static async createWard(data: Omit<Ward, 'id'>): Promise<void> {
@@ -1381,12 +980,11 @@ export class DataService {
     await deleteDoc(doc(db, 'wards', id));
   }
 
-  // ── KOTHIS ─────────────────────────────────────────────────────────────────
   static onKothisChange(callback: (kothis: Kothi[]) => void) {
-    const q = query(collection(db, 'kothis'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, snapshot => {
-      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Kothi)));
-    });
+    return onSnapshot(
+      query(collection(db, 'kothis'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Kothi)))
+    );
   }
 
   static async createKothi(data: Omit<Kothi, 'id'>): Promise<void> {
@@ -1401,12 +999,11 @@ export class DataService {
     await deleteDoc(doc(db, 'kothis', id));
   }
 
-  // ── ASSIGNMENTS ────────────────────────────────────────────────────────────
   static onAssignmentsChange(callback: (assignments: Assignment[]) => void) {
-    const q = query(collection(db, 'assignments'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, snapshot => {
-      callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignment)));
-    });
+    return onSnapshot(
+      query(collection(db, 'assignments'), orderBy('createdAt', 'desc')),
+      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Assignment)))
+    );
   }
 
   static async createAssignment(data: Omit<Assignment, 'id'>): Promise<void> {

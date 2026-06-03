@@ -1,692 +1,625 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AlertCircle, CheckCircle, Clock, Download, Eye, MapPin, X, XCircle } from 'lucide-react'
+import {
+  AlertCircle, CheckCircle, Clock, Download, Eye,
+  MapPin, X, XCircle, Search, RefreshCw, Zap, Filter,
+} from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DataService, FeederPointRequest } from '@/lib/dataService'
+import { useTheme } from '@/contexts/ThemeContext'
+import { getTokens } from '@/lib/dashboardTheme'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(value: any): string {
   if (!value) return 'N/A'
-  if (typeof value.toDate === 'function') {
-    return value.toDate().toLocaleString()
-  }
-  if (value instanceof Date) {
-    return value.toLocaleString()
-  }
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleString()
+  try {
+    const d = typeof value.toDate === 'function' ? value.toDate()
+      : typeof value._seconds === 'number' ? new Date(value._seconds * 1000)
+      : value instanceof Date ? value
+      : new Date(value)
+    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleString()
+  } catch { return 'N/A' }
 }
 
+function getPointType(r: FeederPointRequest): 'feeder' | 'chronic' {
+  return (r as any).pointType === 'chronic' ? 'chronic' : 'feeder'
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FeederPointRequestsPage() {
-  const [requests, setRequests] = useState<FeederPointRequest[]>([])
-  const [selectedRequest, setSelectedRequest] = useState<FeederPointRequest | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
-  const [zoneFilter, setZoneFilter] = useState('all')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [isEditingZone, setIsEditingZone] = useState(false)
-  const [editingZoneValue, setEditingZoneValue] = useState('')
-  const [isUpdating, setIsUpdating] = useState(false)
-  
-  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set())
-  const [bulkZoneValue, setBulkZoneValue] = useState('')
-  const [isBulkUpdating, setIsBulkUpdating] = useState(false)
+  const { theme } = useTheme()
+  const dark = theme === 'dark'
+  const T = getTokens(dark)
+  const qc = useQueryClient()
 
-  const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 50
+  // ── Data via React Query ──
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['feederPointRequests'],
+    queryFn: () => new Promise<FeederPointRequest[]>(resolve => {
+      const unsub = DataService.onFeederPointRequestsChange((data: FeederPointRequest[]) => { resolve(data); unsub() })
+    }),
+    staleTime: 2 * 60_000,
+  })
 
-  useEffect(() => {
-    const unsubscribe = DataService.onFeederPointRequestsChange(requestsData => {
-      setRequests(requestsData)
-      setLoading(false)
-    })
-    return () => unsubscribe?.()
-  }, [])
+  // ── Filters ──
+  const [statusF,  setStatusF]  = useState<'all'|'pending'|'approved'|'rejected'>('all')
+  const [typeF,    setTypeF]    = useState<'all'|'feeder'|'chronic'>('all')
+  const [zoneF,    setZoneF]    = useState('all')
+  const [search,   setSearch]   = useState('')
+  const [page,     setPage]     = useState(1)
+  const [selected, setSelected] = useState<FeederPointRequest | null>(null)
+
+  // ── Bulk select ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkZone,    setBulkZone]    = useState('')
+  const [bulkUpdating,setBulkUpdating]= useState(false)
+
+  // ── Inline zone edit ──
+  const [editingZone,   setEditingZone]   = useState(false)
+  const [editZoneValue, setEditZoneValue] = useState('')
+  const [zoneUpdating,  setZoneUpdating]  = useState(false)
+
+  // ── Acting ──
+  const [acting, setActing] = useState<string | null>(null)
+
+  const ITEMS = 50
 
   const uniqueZones = useMemo(() => {
-    const zones = new Set(requests.map(r => r.zoneNumber).filter(z => !!z))
+    const zones = new Set(requests.map(r => (r.zoneNumber || (r as any).ward || '')).filter(Boolean))
     return Array.from(zones).sort((a, b) => {
-      const numA = Number(a)
-      const numB = Number(b)
-      if (!isNaN(numA) && !isNaN(numB)) return numA - numB
-      return String(a).localeCompare(String(b))
+      const na = Number(a), nb = Number(b)
+      return (!isNaN(na) && !isNaN(nb)) ? na - nb : String(a).localeCompare(String(b))
     })
   }, [requests])
-  
-const handleApprove = async (request: FeederPointRequest) => {
-  try {
-    // 🔥 1. CREATE FEEDER POINT
-    await DataService.createFeederPoint({
-      name: request.feederPointName || request.areaName,
-      kothiId: request.kothiName,   // optional mapping
-      kothiName: request.kothiName,
-      status: 'active',
-      priority: request.priority || 'medium',
-      location: {
-        address: request.nearestLandmark || request.areaName || '',
-        latitude: request.coordinates?.latitude || 0,
-        longitude: request.coordinates?.longitude || 0,
-      },
-    });
 
-    // 🔥 2. UPDATE REQUEST STATUS
-    await DataService.updateFeederPointRequest(request.id, {
-      status: 'approved',
-      reviewedAt: new Date(),
-    });
-
-    alert("✅ Feeder Point Approved & Created");
-
-  } catch (error) {
-    console.error(error);
-    alert("❌ Error approving request");
-  }
-};
-
-const handleReject = async (request: FeederPointRequest) => {
-  const reason = prompt("Enter rejection reason:");
-
-  if (!reason) return;
-
-  try {
-    await DataService.updateFeederPointRequest(request.id, {
-      status: 'rejected',
-      rejectionReason: reason,
-      reviewedAt: new Date(),
-    });
-
-    alert("❌ Request Rejected");
-
-  } catch (error) {
-    console.error(error);
-    alert("Error rejecting request");
-  }
-};
-
-  const baseFilteredRequests = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase()
-    return requests
-      .filter(request => zoneFilter === 'all' || (request.zoneNumber || '').toString() === zoneFilter)
-      .filter(request => {
-        if (!term) return true
-        const textFields = [
-          request.feederPointName,
-          request.areaName,
-          request.nearestLandmark,
-          request.userName,
-          request.userEmail,
-          request.userPhone,
-          request.zoneNumber,
-          request.wardNumber,
-          request.kothiName,        // ← added
-          request.areaDescription,
-        ]
-        return textFields.some(field => (field || '').toString().toLowerCase().includes(term))
-      })
-  }, [requests, zoneFilter, searchTerm])
+  // Base filter (search + zone + type)
+  const base = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return requests.filter(r => {
+      if (zoneF !== 'all' && String(r.zoneNumber || '') !== zoneF) return false
+      if (typeF !== 'all' && getPointType(r) !== typeF) return false
+      if (!q) return true
+      return [
+        r.feederPointName, r.areaName, r.nearestLandmark, r.userName,
+        r.userEmail, (r as any).userPhone, r.zoneNumber, r.wardNumber,
+        r.kothiName, r.areaDescription,
+      ].some(f => (f || '').toString().toLowerCase().includes(q))
+    })
+  }, [requests, zoneF, typeF, search])
 
   const stats = useMemo(() => ({
-    total: baseFilteredRequests.length,
-    pending: baseFilteredRequests.filter(r => r.status === 'pending').length,
-    approved: baseFilteredRequests.filter(r => r.status === 'approved').length,
-    rejected: baseFilteredRequests.filter(r => r.status === 'rejected').length
-  }), [baseFilteredRequests])
+    total:    base.length,
+    pending:  base.filter(r => r.status === 'pending').length,
+    approved: base.filter(r => r.status === 'approved').length,
+    rejected: base.filter(r => r.status === 'rejected').length,
+    feeder:   base.filter(r => getPointType(r) === 'feeder').length,
+    chronic:  base.filter(r => getPointType(r) === 'chronic').length,
+  }), [base])
 
-  const filteredRequests = useMemo(() => {
-    return baseFilteredRequests.filter(request => statusFilter === 'all' || request.status === statusFilter)
-  }, [baseFilteredRequests, statusFilter])
+  const filtered = useMemo(() =>
+    statusF === 'all' ? base : base.filter(r => r.status === statusF),
+    [base, statusF]
+  )
 
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [statusFilter, zoneFilter, searchTerm])
+  useEffect(() => { setPage(1) }, [statusF, zoneF, typeF, search])
 
-  const paginatedRequests = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage
-    return filteredRequests.slice(startIndex, startIndex + itemsPerPage)
-  }, [filteredRequests, currentPage])
+  const totalPages = Math.ceil(filtered.length / ITEMS)
+  const paged = filtered.slice((page - 1) * ITEMS, page * ITEMS)
 
-  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage)
-
-  const getStatusBadge = (status: string) => {
-    const badgeClasses = {
-      pending: 'badge-warning',
-      approved: 'badge-success',
-      rejected: 'badge-danger'
-    }
-    return badgeClasses[status as keyof typeof badgeClasses] || 'badge-info'
+  // ── Actions ──
+  const handleApprove = async (r: FeederPointRequest) => {
+    if (!confirm(`Approve "${r.feederPointName || r.areaName}"?`)) return
+    setActing(r.id)
+    try {
+      await DataService.createFeederPoint({
+        name: r.feederPointName || r.areaName,
+        kothiId: r.kothiName,
+        kothiName: r.kothiName,
+        status: 'active',
+        priority: r.priority || 'medium',
+        location: {
+          address: r.nearestLandmark || r.areaName || '',
+          latitude: r.coordinates?.latitude || 0,
+          longitude: r.coordinates?.longitude || 0,
+        },
+      })
+      await DataService.updateFeederPointRequest(r.id, { status: 'approved', reviewedAt: new Date() })
+      qc.invalidateQueries({ queryKey: ['feederPointRequests'] })
+      if (selected?.id === r.id) setSelected({ ...r, status: 'approved' })
+    } catch (e) { console.error(e); alert('Error approving request') }
+    finally { setActing(null) }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return <CheckCircle className="h-4 w-4 text-success-600" />
-      case 'rejected':
-        return <XCircle className="h-4 w-4 text-danger-600" />
-      default:
-        return <Clock className="h-4 w-4 text-warning-600" />
-    }
+  const handleReject = async (r: FeederPointRequest) => {
+    const reason = prompt('Enter rejection reason:')
+    if (!reason) return
+    setActing(r.id)
+    try {
+      await DataService.updateFeederPointRequest(r.id, { status: 'rejected', rejectionReason: reason, reviewedAt: new Date() })
+      qc.invalidateQueries({ queryKey: ['feederPointRequests'] })
+      if (selected?.id === r.id) setSelected({ ...r, status: 'rejected' })
+    } catch (e) { console.error(e); alert('Error rejecting request') }
+    finally { setActing(null) }
   }
 
   const handleEditZone = async () => {
-    if (!selectedRequest) return
-    setIsUpdating(true)
+    if (!selected) return
+    setZoneUpdating(true)
     try {
-      await DataService.updateFeederPointRequest(selectedRequest.id, {
-        zoneNumber: editingZoneValue
-      })
-      setSelectedRequest({ ...selectedRequest, zoneNumber: editingZoneValue })
-      setIsEditingZone(false)
-    } catch (e) {
-      console.error(e)
-    }
-    setIsUpdating(false)
+      await DataService.updateFeederPointRequest(selected.id, { zoneNumber: editZoneValue })
+      setSelected({ ...selected, zoneNumber: editZoneValue })
+      qc.invalidateQueries({ queryKey: ['feederPointRequests'] })
+      setEditingZone(false)
+    } catch (e) { console.error(e) }
+    setZoneUpdating(false)
   }
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedRequestIds(new Set(paginatedRequests.map(r => r.id)))
-    } else {
-      setSelectedRequestIds(new Set())
-    }
-  }
-
-  const handleSelectOne = (id: string, checked: boolean) => {
-    const newSet = new Set(selectedRequestIds)
-    if (checked) newSet.add(id)
-    else newSet.delete(id)
-    setSelectedRequestIds(newSet)
-  }
-
-  const handleBulkUpdateZone = async () => {
-    if (selectedRequestIds.size === 0 || !bulkZoneValue) return
-    setIsBulkUpdating(true)
+  const handleBulkZone = async () => {
+    if (!selectedIds.size || !bulkZone.trim()) return
+    setBulkUpdating(true)
     try {
-      const promises = Array.from(selectedRequestIds).map(id => 
-        DataService.updateFeederPointRequest(id, { zoneNumber: bulkZoneValue })
-      )
-      await Promise.all(promises)
-      setSelectedRequestIds(new Set())
-      setBulkZoneValue('')
-    } catch (e) {
-      console.error(e)
-    }
-    setIsBulkUpdating(false)
+      await Promise.all(Array.from(selectedIds).map(id =>
+        DataService.updateFeederPointRequest(id, { zoneNumber: bulkZone })
+      ))
+      qc.invalidateQueries({ queryKey: ['feederPointRequests'] })
+      setSelectedIds(new Set()); setBulkZone('')
+    } catch (e) { console.error(e) }
+    setBulkUpdating(false)
   }
 
   const handleDownload = async () => {
-    if (filteredRequests.length === 0) return
-
+    if (!filtered.length) return
     const XLSX = await import('xlsx')
-    const rows = filteredRequests.map(request => ({
-      'Request ID': request.id,
-      'Feeder Point': request.feederPointName || request.areaName || 'N/A',
-      'Area Name': request.areaName || '',
-      Zone: request.zoneNumber || '',
-      Ward: request.wardNumber || '',
-      Kothi: request.kothiName || '',                    // ← added
-      'Feeder Point Name': request.feederPointName || '', // ← added
-      Priority: request.priority || 'N/A',
-      Status: (request.status || '').toUpperCase(),
-      'Requested By': request.userName || '',
-      'User Email': request.userEmail || '',
-      'User Phone': request.userPhone || '',
-      'Submitted At': formatDate(request.submittedAt),
-      Coordinates: request.coordinates ? `${request.coordinates.latitude}, ${request.coordinates.longitude}` : '',
-      'Nearest Landmark': request.nearestLandmark || '',
-      'Households (Approx)': request.approximateHouseholds || '',
-      'Vehicle Type': request.vehicleType || '',
-      'Additional Details': request.additionalDetails || '',
-      'Area Description': request.areaDescription || '',
-      'Image URL': request.imageURL || '',
+    const rows = filtered.map(r => ({
+      'Request ID': r.id,
+      'Point Type': getPointType(r).toUpperCase(),
+      'Feeder Point': r.feederPointName || r.areaName || 'N/A',
+      'Area Name': r.areaName || '',
+      Zone: r.zoneNumber || '',
+      Ward: r.wardNumber || '',
+      Kothi: r.kothiName || '',
+      Priority: r.priority || 'N/A',
+      Status: (r.status || '').toUpperCase(),
+      'Requested By': r.userName || '',
+      'User Email': r.userEmail || '',
+      'User Phone': (r as any).userPhone || '',
+      'Submitted At': formatDate(r.submittedAt),
+      Coordinates: r.coordinates ? `${r.coordinates.latitude}, ${r.coordinates.longitude}` : '',
+      'Nearest Landmark': r.nearestLandmark || '',
+      'Households (Approx)': r.approximateHouseholds || '',
+      'Vehicle Type': r.vehicleType || '',
+      'Additional Details': r.additionalDetails || '',
+      'Area Description': r.areaDescription || '',
+      'Image URL': r.imageURL || '',
     }))
-
-    const worksheet = XLSX.utils.json_to_sheet(rows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Feeder Requests')
-    const suffix = statusFilter === 'all' ? 'all' : statusFilter
-    XLSX.writeFile(workbook, `feeder-point-requests-${suffix}.xlsx`)
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'FP Requests')
+    XLSX.writeFile(wb, `feeder-point-requests-${statusF}.xlsx`)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
+  // ── Color helpers ──
+  const statusColor = (s: string) => s==='approved' ? T.green : s==='rejected' ? T.red : T.amber
+  const typeColor   = (t: 'feeder'|'chronic') => t==='chronic' ? T.gold : T.accent
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent"
+        style={{ borderColor: `${T.accent}30`, borderTopColor: T.accent }} />
+    </div>
+  )
 
   return (
-    <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="space-y-5">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl"
+            style={{ background: T.accentDim, border: `1px solid ${T.accentBorder}` }}>
+            <MapPin className="h-6 w-6" style={{ color: T.accent }} />
+          </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Feeder Point Request List</h1>
-            <p className="mt-2 text-gray-600">
-              Track every requested feeder point and review details before approving.
+            <h1 className="text-2xl font-black tracking-tight" style={{ color: T.textPrimary }}>Feeder Point Requests</h1>
+            <p className="text-sm" style={{ color: T.textMuted }}>
+              {requests.length} total · {stats.feeder} feeder · {stats.chronic} chronic · {stats.pending} pending
             </p>
           </div>
-          <div className="flex space-x-3">
-            <button
-              onClick={handleDownload}
-              className="btn-secondary flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={filteredRequests.length === 0}
-            >
-              <Download className="h-4 w-4" />
-              <span>Download (.xlsx)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => qc.invalidateQueries({ queryKey: ['feederPointRequests'] })}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold"
+            style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textSecondary, cursor: 'pointer' }}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
+          <button onClick={handleDownload} disabled={!filtered.length}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+            style={{ background: T.green, color: '#fff', border: 'none', cursor: 'pointer' }}>
+            <Download className="h-4 w-4" /> Export
+          </button>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {[
+          { label: 'Total',    value: stats.total,    color: T.accent  },
+          { label: 'Pending',  value: stats.pending,  color: T.amber   },
+          { label: 'Approved', value: stats.approved, color: T.green   },
+          { label: 'Rejected', value: stats.rejected, color: T.red     },
+          { label: 'Feeder',   value: stats.feeder,   color: T.accent  },
+          { label: 'Chronic',  value: stats.chronic,  color: T.gold    },
+        ].map((s, i) => (
+          <div key={s.label} className="rounded-xl p-3"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: `slideUp 0.4s ease ${i*40}ms both` }}>
+            <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textSecondary }}>{s.label}</p>
+            <p className="text-[20px] font-bold leading-none" style={{ color: s.color, fontFamily: "'JetBrains Mono', monospace" }}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-2xl p-4 space-y-3" style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Search */}
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: T.textMuted }} />
+            <input type="text" placeholder="Search feeder point, area, kothi, requester..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full pl-10 pr-8 py-2 rounded-xl text-sm"
+              style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
+            {search && (
+              <button onClick={() => setSearch('')} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:T.textMuted }}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {/* Zone */}
+          <select value={zoneF} onChange={e => setZoneF(e.target.value)}
+            style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, borderRadius: 10, padding: '8px 12px', fontSize: 13, outline: 'none' }}>
+            <option value="all">All Zones</option>
+            {uniqueZones.map(z => <option key={String(z)} value={String(z)}>Zone {z}</option>)}
+          </select>
+        </div>
+
+        {/* Status + Type pills */}
+        <div className="flex flex-wrap gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider flex items-center" style={{ color: T.textMuted }}>
+            <Filter className="h-3 w-3 mr-1" /> Status:
+          </span>
+          {(['all','pending','approved','rejected'] as const).map(s => (
+            <button key={s} onClick={() => setStatusF(s)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                background: statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.surface,
+                color: statusF===s ? (dark?'#000':'#fff') : T.textSecondary,
+                border: `1px solid ${statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.cardBorder}`,
+                cursor: 'pointer',
+              }}>
+              {s.charAt(0).toUpperCase()+s.slice(1)}
             </button>
-          </div>
+          ))}
+          <span className="text-[10px] font-semibold uppercase tracking-wider flex items-center ml-2" style={{ color: T.textMuted }}>
+            <Zap className="h-3 w-3 mr-1" /> Type:
+          </span>
+          {(['all','feeder','chronic'] as const).map(t => (
+            <button key={t} onClick={() => setTypeF(t)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                background: typeF===t ? (t==='chronic' ? T.gold : t==='feeder' ? T.accent : T.accent) : T.surface,
+                color: typeF===t ? (dark?'#000':'#fff') : T.textSecondary,
+                border: `1px solid ${typeF===t ? (t==='chronic' ? T.gold : T.accent) : T.cardBorder}`,
+                cursor: 'pointer',
+              }}>
+              {t.charAt(0).toUpperCase()+t.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="card">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center space-x-3">
-              <label className="text-sm font-medium text-gray-700">Status:</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="all">All</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-            <div className="flex items-center space-x-3">
-              <label className="text-sm font-medium text-gray-700">Zone:</label>
-              <select
-                value={zoneFilter}
-                onChange={(e) => setZoneFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="all">All Zones</option>
-                {uniqueZones.map((zone) => (
-                  <option key={String(zone)} value={String(zone)}>
-                    Zone {zone}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="flex-1">
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by feeder point, area, kothi, requester or zone..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
+      {/* Bulk zone bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3"
+          style={{ background: T.accentDim, border: `1px solid ${T.accentBorder}` }}>
+          <span className="text-sm font-semibold" style={{ color: T.accent }}>{selectedIds.size} selected</span>
+          <input type="text" placeholder="Enter Zone"
+            value={bulkZone} onChange={e => setBulkZone(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-sm w-32"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
+          <button onClick={handleBulkZone} disabled={bulkUpdating || !bulkZone.trim()}
+            className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40"
+            style={{ background: T.accent, color: dark?'#000':'#fff', border: 'none', cursor: 'pointer' }}>
+            {bulkUpdating ? 'Updating…' : 'Update Zone'}
+          </button>
+          <button onClick={() => setSelectedIds(new Set())}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textSecondary, fontSize: 12, fontWeight: 600 }}>
+            Clear
+          </button>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <StatCard title="Pending" value={stats.pending} icon={<Clock className="h-6 w-6 text-white" />} bg="bg-warning-500" />
-        <StatCard title="Approved" value={stats.approved} icon={<CheckCircle className="h-6 w-6 text-white" />} bg="bg-success-500" />
-        <StatCard title="Rejected" value={stats.rejected} icon={<XCircle className="h-6 w-6 text-white" />} bg="bg-danger-500" />
-        <StatCard title="Total Requests" value={stats.total} icon={<MapPin className="h-6 w-6 text-white" />} bg="bg-primary-500" />
-      </div>
+      {/* Table */}
+      <div className="rounded-2xl overflow-hidden" style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
+          <h2 className="text-sm font-semibold" style={{ color: T.textPrimary }}>
+            Requests ({filtered.length})
+          </h2>
+        </div>
 
-      <div className="table-container">
-        {selectedRequestIds.size > 0 && (
-          <div className="m-4 bg-indigo-50 border border-indigo-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="text-sm font-medium text-indigo-800">
-              {selectedRequestIds.size} request(s) selected
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="text"
-                placeholder="Enter Zone"
-                value={bulkZoneValue}
-                onChange={(e) => setBulkZoneValue(e.target.value)}
-                className="px-3 py-1.5 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 w-32"
-              />
-              <button
-                onClick={handleBulkUpdateZone}
-                disabled={isBulkUpdating || !bulkZoneValue.trim()}
-                className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isBulkUpdating ? 'Updating...' : 'Update Selected'}
-              </button>
-              <button
-                onClick={() => setSelectedRequestIds(new Set())}
-                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium ml-2"
-              >
-                Clear
-              </button>
-            </div>
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <AlertCircle className="h-10 w-10 opacity-20" style={{ color: T.accent }} />
+            <p className="text-sm" style={{ color: T.textMuted }}>No feeder point requests found</p>
           </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header w-12 text-center">
-                  <input
-                    type="checkbox"
-                    checked={paginatedRequests.length > 0 && paginatedRequests.every(r => selectedRequestIds.has(r.id))}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer w-4 h-4 mt-1"
-                  />
-                </th>
-                <th className="table-header">Requested Feeder Point</th>
-                <th className="table-header">Requester</th>
-                {/* ── Zone / Ward / Kothi column ── */}
-                <th className="table-header">Zone / Ward / Kothi</th>
-                <th className="table-header">Priority</th>
-                <th className="table-header">Status</th>
-                <th className="table-header">Submitted</th>
-                <th className="table-header">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedRequests.map((request) => (
-                <tr key={request.id} className={`hover:bg-gray-50 ${selectedRequestIds.has(request.id) ? 'bg-indigo-50/30' : ''}`}>
-                  <td className="table-cell text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedRequestIds.has(request.id)}
-                      onChange={(e) => handleSelectOne(request.id, e.target.checked)}
-                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer w-4 h-4"
-                    />
-                  </td>
-                  <td className="table-cell">
-                    <div className="flex items-center space-x-3">
-                      <div className="p-2 rounded-lg bg-indigo-50 text-indigo-700">
-                        <MapPin className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">
-                          {request.feederPointName || request.areaName || 'Requested feeder point'}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {request.areaName || 'Area not provided'}
-                          {request.nearestLandmark ? ` • ${request.nearestLandmark}` : ''}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div className="text-sm font-medium text-gray-900">{request.userName || 'Unknown requester'}</div>
-                    <div className="text-xs text-gray-500">{request.userEmail || 'Email not set'}</div>
-                  </td>
-
-                  {/* ── Zone / Ward / Kothi cell ── */}
-                  <td className="table-cell">
-                    <div className="text-sm text-gray-900">Zone: {request.zoneNumber || 'N/A'}</div>
-                    <div className="text-xs text-gray-500">Ward: {request.wardNumber || 'N/A'}</div>
-                    {request.kothiName && (
-                      <div className="text-xs text-gray-500">Kothi: {request.kothiName}</div>
-                    )}
-                    {request.feederPointName && (
-                      <div className="text-xs text-indigo-500">FP: {request.feederPointName}</div>
-                    )}
-                  </td>
-
-                  <td className="table-cell">
-                    <span className="badge badge-info">{request.priority || 'medium'}</span>
-                  </td>
-                  <td className="table-cell">
-                    <div className="flex items-center space-x-2">
-                      {getStatusIcon(request.status)}
-                      <span className={`badge ${getStatusBadge(request.status)}`}>
-                        {request.status?.toUpperCase?.() || 'PENDING'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div className="text-sm text-gray-900">{formatDate(request.submittedAt)}</div>
-                    {request.reviewedAt && (
-                      <div className="text-xs text-gray-500">Reviewed: {formatDate(request.reviewedAt)}</div>
-                    )}
-                  </td>
-                  <td className="table-cell">
-                    <button
-                      onClick={() => {
-                        setSelectedRequest(request)
-                        setIsEditingZone(false)
-                        setTimeout(() => {
-                          document.getElementById('details-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                        }, 100)
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: T.surface, borderBottom: `1px solid ${T.cardBorder}` }}>
+                  <th className="px-3 py-3 text-center" style={{ width: 40 }}>
+                    <input type="checkbox"
+                      checked={paged.length > 0 && paged.every(r => selectedIds.has(r.id))}
+                      onChange={e => {
+                        const s = new Set(selectedIds)
+                        paged.forEach(r => e.target.checked ? s.add(r.id) : s.delete(r.id))
+                        setSelectedIds(s)
                       }}
-                      className="p-2 text-gray-500 hover:text-primary-600 rounded-lg hover:bg-gray-100"
-                      title="View details"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </td>
+                      style={{ accentColor: T.accent, cursor: 'pointer' }} />
+                  </th>
+                  {['Feeder Point','Type','Requester','Zone / Ward / Kothi','Priority','Status','Submitted','Actions'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ fontSize: 10, color: T.accent }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {paged.map(r => {
+                  const pt = getPointType(r)
+                  const tc = typeColor(pt)
+                  const sc = statusColor(r.status || 'pending')
+                  const isAct = acting === r.id
+                  const isSel = selectedIds.has(r.id)
+                  return (
+                    <tr key={r.id}
+                      style={{ borderBottom: `1px solid ${T.gridLine}`, background: isSel ? `${T.accent}08` : 'transparent', opacity: isAct ? 0.5 : 1 }}
+                      onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = T.surface }}
+                      onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
 
-        {filteredRequests.length === 0 && (
-          <div className="text-center py-12">
-            <div className="flex justify-center mb-3">
-              <AlertCircle className="h-10 w-10 text-gray-400" />
-            </div>
-            <div className="text-gray-500">No feeder point requests found for the current filters.</div>
+                      <td className="px-3 py-3 text-center">
+                        <input type="checkbox" checked={isSel}
+                          onChange={e => {
+                            const s = new Set(selectedIds)
+                            e.target.checked ? s.add(r.id) : s.delete(r.id)
+                            setSelectedIds(s)
+                          }}
+                          style={{ accentColor: T.accent, cursor: 'pointer' }} />
+                      </td>
+
+                      <td className="px-4 py-3" style={{ minWidth: 180 }}>
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg"
+                            style={{ background: `${tc}15` }}>
+                            <MapPin className="h-4 w-4" style={{ color: tc }} />
+                          </div>
+                          <div>
+                            <p className="font-semibold truncate max-w-[160px]" style={{ color: T.textPrimary }}>
+                              {r.feederPointName || r.areaName || 'Unnamed'}
+                            </p>
+                            <p className="text-[10px] truncate max-w-[160px]" style={{ color: T.textMuted }}>
+                              {r.areaName || '—'}{r.nearestLandmark ? ` · ${r.nearestLandmark}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase"
+                          style={{ background: `${tc}20`, color: tc, border: `1px solid ${tc}30` }}>
+                          {pt}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <p style={{ color: T.textPrimary }}>{r.userName || '—'}</p>
+                        <p className="text-[10px]" style={{ color: T.textMuted }}>{r.userEmail || '—'}</p>
+                      </td>
+
+                      <td className="px-4 py-3" style={{ whiteSpace: 'nowrap' }}>
+                        <p style={{ color: T.textSecondary }}>Zone: {r.zoneNumber || '—'}</p>
+                        <p className="text-[10px]" style={{ color: T.textMuted }}>Ward: {r.wardNumber || '—'}</p>
+                        {r.kothiName && <p className="text-[10px]" style={{ color: T.textMuted }}>Kothi: {r.kothiName}</p>}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold capitalize"
+                          style={{ background: `${T.textMuted}15`, color: T.textSecondary }}>
+                          {r.priority || 'medium'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          {(r.status||'pending')==='approved' && <CheckCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {(r.status||'pending')==='rejected' && <XCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {(r.status||'pending')==='pending'  && <Clock className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                            style={{ background: `${sc}15`, color: sc }}>
+                            {r.status || 'pending'}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: T.textSecondary }}>
+                        {formatDate(r.submittedAt)}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => { setSelected(r); setEditingZone(false); setTimeout(() => document.getElementById('details-card')?.scrollIntoView({ behavior:'smooth', block:'start' }), 100) }}
+                          className="p-1.5 rounded-lg"
+                          style={{ background: T.accentDim, color: T.accent, border: 'none', cursor: 'pointer' }}>
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
 
+        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-4 bg-white border-t border-gray-200 sm:px-6">
-            <div className="flex justify-between flex-1 sm:hidden">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">{((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
-                  <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredRequests.length)}</span> of{' '}
-                  <span className="font-medium">{filteredRequests.length}</span> results
-                </p>
-              </div>
-              <div>
-                <nav className="inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="relative inline-flex items-center px-2 py-2 text-gray-400 bg-white border border-gray-300 rounded-l-md hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <span className="sr-only">Previous</span>
-                    <span className="px-2">&larr; Prev</span>
-                  </button>
-                  <div className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border-t border-b border-gray-300">
-                    Page {currentPage} of {totalPages}
-                  </div>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="relative inline-flex items-center px-2 py-2 text-gray-400 bg-white border border-gray-300 rounded-r-md hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <span className="sr-only">Next</span>
-                    <span className="px-2">Next &rarr;</span>
-                  </button>
-                </nav>
-              </div>
+          <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: `1px solid ${T.cardBorder}` }}>
+            <span className="text-xs" style={{ color: T.textMuted }}>
+              {(page-1)*ITEMS+1}–{Math.min(page*ITEMS,filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button disabled={page===1} onClick={() => setPage(p=>p-1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
+                style={{ border:`1px solid ${T.cardBorder}`, color:T.textSecondary, background:'transparent', cursor:page===1?'not-allowed':'pointer' }}>← Prev</button>
+              <span className="text-xs" style={{ color: T.textMuted }}>Page {page} of {totalPages}</span>
+              <button disabled={page===totalPages} onClick={() => setPage(p=>p+1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
+                style={{ border:`1px solid ${T.cardBorder}`, color:T.textSecondary, background:'transparent', cursor:page===totalPages?'not-allowed':'pointer' }}>Next →</button>
             </div>
           </div>
         )}
       </div>
 
       {/* ── Detail Card ── */}
-      {selectedRequest && (
-        <div id="details-card" className="card mt-6 border-2 border-primary-500 shadow-lg">
-          <div className="flex justify-between items-start">
+      {selected && (
+        <div id="details-card" className="rounded-2xl p-6 space-y-5"
+          style={{ background: T.card, border: `2px solid ${T.accent}` }}>
+
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Requested Feeder Point</p>
-              <h2 className="text-2xl font-bold text-gray-900">
-                {selectedRequest.feederPointName || selectedRequest.areaName || 'Requested feeder point'}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                  style={{ background: `${typeColor(getPointType(selected))}20`, color: typeColor(getPointType(selected)) }}>
+                  {getPointType(selected)}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                  style={{ background: `${statusColor(selected.status||'pending')}15`, color: statusColor(selected.status||'pending') }}>
+                  {selected.status || 'pending'}
+                </span>
+              </div>
+              <h2 className="text-xl font-bold" style={{ color: T.textPrimary }}>
+                {selected.feederPointName || selected.areaName || 'Unnamed Request'}
               </h2>
-              <p className="text-gray-600 mt-1">
-                {selectedRequest.areaDescription || selectedRequest.additionalDetails || 'No description provided.'}
+              <p className="text-sm mt-0.5" style={{ color: T.textMuted }}>
+                {selected.areaDescription || selected.additionalDetails || 'No description provided.'}
               </p>
             </div>
-            <button
-              onClick={() => setSelectedRequest(null)}
-              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-              aria-label="Close detail view"
-            >
+            <button onClick={() => setSelected(null)} className="flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0"
+              style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textSecondary, cursor: 'pointer' }}>
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <InfoRow label="Requested By" value={selectedRequest.userName} />
-            <InfoRow label="Email" value={selectedRequest.userEmail} />
-            <InfoRow label="Phone" value={selectedRequest.userPhone} />
-            <InfoRow label="Status" value={selectedRequest.status?.toUpperCase?.()} />
-            <InfoRow label="Priority" value={selectedRequest.priority || 'N/A'} />
-            <InfoRow label="Submitted At" value={formatDate(selectedRequest.submittedAt)} />
+          {/* Info grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label:'Requested By', value: selected.userName },
+              { label:'Email',        value: selected.userEmail },
+              { label:'Phone',        value: (selected as any).userPhone },
+              { label:'Priority',     value: selected.priority || 'medium' },
+              { label:'Submitted',    value: formatDate(selected.submittedAt) },
+              { label:'Ward',         value: selected.wardNumber },
+              { label:'Kothi',        value: selected.kothiName },
+              { label:'Feeder Point', value: selected.feederPointName },
+              { label:'Landmark',     value: selected.nearestLandmark },
+              { label:'Households',   value: selected.approximateHouseholds },
+              { label:'Vehicle Type', value: selected.vehicleType },
+              { label:'Population',   value: selected.populationDensity },
+              { label:'Accessibility',value: selected.accessibility },
+            ].map(row => (
+              <div key={row.label} className="rounded-xl px-3 py-2.5"
+                style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
+                <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: T.textMuted }}>{row.label}</p>
+                <p className="text-sm font-medium" style={{ color: T.textPrimary }}>{row.value || '—'}</p>
+              </div>
+            ))}
 
-            {/* ── Zone (editable) ── */}
-            {isEditingZone ? (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Zone</p>
-                <div className="flex items-center space-x-2 mt-1">
-                  <input
-                    type="text"
-                    value={editingZoneValue}
-                    onChange={(e) => setEditingZoneValue(e.target.value)}
-                    className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 w-24"
-                    placeholder="Zone"
-                  />
-                  <button
-                    onClick={handleEditZone}
-                    disabled={isUpdating}
-                    className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setIsEditingZone(false)}
-                    disabled={isUpdating}
-                    className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
+            {/* Zone — editable */}
+            <div className="rounded-xl px-3 py-2.5" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
+              <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: T.textMuted }}>Zone</p>
+              {editingZone ? (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <input value={editZoneValue} onChange={e => setEditZoneValue(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-lg text-xs"
+                    style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
+                  <button onClick={handleEditZone} disabled={zoneUpdating}
+                    className="text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-40"
+                    style={{ background: T.accent, color: dark?'#000':'#fff', border: 'none', cursor: 'pointer' }}>Save</button>
+                  <button onClick={() => setEditingZone(false)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, fontSize: 12 }}>✕</button>
                 </div>
-              </div>
-            ) : (
-              <div className="group relative flex items-center justify-between">
-                <InfoRow label="Zone" value={selectedRequest.zoneNumber} />
-                <button
-                  onClick={() => {
-                    setEditingZoneValue(selectedRequest.zoneNumber || '')
-                    setIsEditingZone(true)
-                  }}
-                  className="px-2 py-1 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-primary-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Edit Zone"
-                >
-                  Edit
-                </button>
-              </div>
-            )}
-
-            <InfoRow label="Ward" value={selectedRequest.wardNumber} />
-
-            {/* ── NEW: Kothi & Feeder Point ── */}
-            <InfoRow label="Kothi" value={selectedRequest.kothiName} />
-            <InfoRow label="Feeder Point" value={selectedRequest.feederPointName} />
-
-            <InfoRow label="Nearest Landmark" value={selectedRequest.nearestLandmark} />
-            <InfoRow label="Approx. Households" value={selectedRequest.approximateHouseholds} />
-            <InfoRow label="Vehicle Type" value={selectedRequest.vehicleType} />
-            <InfoRow label="Population Density" value={selectedRequest.populationDensity} />
-            <InfoRow label="Accessibility" value={selectedRequest.accessibility} />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium" style={{ color: T.textPrimary }}>{selected.zoneNumber || '—'}</p>
+                  <button onClick={() => { setEditZoneValue(selected.zoneNumber||''); setEditingZone(true) }}
+                    className="text-[10px] px-1.5 py-0.5 rounded font-semibold opacity-0 group-hover:opacity-100 hover:opacity-100"
+                    style={{ background: T.accentDim, color: T.accent, border: 'none', cursor: 'pointer' }}>Edit</button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {selectedRequest.coordinates && (
-            <div className="mt-4">
-              <InfoRow
-                label="Coordinates"
-                value={`${selectedRequest.coordinates.latitude}, ${selectedRequest.coordinates.longitude}`}
-              />
+          {/* Coordinates */}
+          {selected.coordinates && (
+            <div className="rounded-xl px-3 py-2.5" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
+              <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: T.textMuted }}>Coordinates</p>
+              <p className="text-sm font-medium" style={{ color: T.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>
+                {selected.coordinates.latitude}, {selected.coordinates.longitude}
+              </p>
             </div>
           )}
 
-          {selectedRequest.imageURL && (
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location Photo</p>
-              <img
-                src={selectedRequest.imageURL}
-                alt="Location"
-                className="rounded-lg max-h-64 object-cover border border-gray-200"
-              />
+          {/* Image */}
+          {selected.imageURL && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textSecondary }}>Location Photo</p>
+              <img src={selected.imageURL} alt="Location"
+                className="rounded-xl max-h-64 object-cover"
+                style={{ border: `1px solid ${T.cardBorder}` }} />
             </div>
           )}
 
-          {selectedRequest.adminNotes && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Admin Notes</p>
-              <p className="text-sm text-blue-800">{selectedRequest.adminNotes}</p>
+          {/* Admin notes */}
+          {(selected as any).adminNotes && (
+            <div className="rounded-xl px-4 py-3" style={{ background: T.accentDim, border: `1px solid ${T.accentBorder}` }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.accent }}>Admin Notes</p>
+              <p className="text-sm" style={{ color: T.textPrimary }}>{(selected as any).adminNotes}</p>
             </div>
           )}
 
-          {selectedRequest.rejectionReason && (
-            <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
-              <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-1">Rejection Reason</p>
-              <p className="text-sm text-red-800">{selectedRequest.rejectionReason}</p>
+          {/* Rejection reason */}
+          {(selected as any).rejectionReason && (
+            <div className="rounded-xl px-4 py-3" style={{ background: `${T.red}10`, border: `1px solid ${T.red}30` }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.red }}>Rejection Reason</p>
+              <p className="text-sm" style={{ color: T.textPrimary }}>{(selected as any).rejectionReason}</p>
             </div>
           )}
 
-          <div className="flex gap-3 mt-6">
-  {/* APPROVE */}
-  <button
-    onClick={() => handleApprove(selectedRequest)}
-    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-  >
-    Approve
-  </button>
-
-  {/* REJECT */}
-  <button
-    onClick={() => handleReject(selectedRequest)}
-    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-  >
-    Reject
-  </button>
-</div>
+          {/* Actions */}
+          {selected.status === 'pending' && (
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => handleApprove(selected)} disabled={acting === selected.id}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+                style={{ background: T.green, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                <CheckCircle className="h-4 w-4" /> Approve
+              </button>
+              <button onClick={() => handleReject(selected)} disabled={acting === selected.id}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+                style={{ background: T.red, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                <XCircle className="h-4 w-4" /> Reject
+              </button>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  )
-}
 
-function StatCard({ title, value, icon, bg }: { title: string; value: number; icon: ReactNode; bg: string }) {
-  return (
-    <div className="stat-card">
-      <div className="flex items-center">
-        <div className={`p-3 rounded-lg ${bg}`}>
-          {icon}
-        </div>
-        <div className="ml-4">
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-semibold text-gray-900">{value}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function InfoRow({ label, value }: { label: string; value: any }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
-      <p className="text-sm text-gray-900 break-words">{value || 'N/A'}</p>
+      <style>{`@keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }`}</style>
     </div>
   )
 }

@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from 'react';
 import { DataService, ComplianceReport } from '@/lib/dataService';
 import { AIService, DailyReportData } from '@/lib/aiService';

@@ -1,27 +1,19 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Download,
-  Eye,
-  RefreshCw,
-  X,
-  XCircle,
-  Star,
+  AlertCircle, CheckCircle, Clock, Download, Eye,
+  RefreshCw, X, XCircle, Star, Search, ZoomIn, ExternalLink,
 } from 'lucide-react'
-import { collection, getDocs, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore'
+import {
+  collection, onSnapshot, query, orderBy,
+  updateDoc, doc, serverTimestamp,
+} from 'firebase/firestore'
 import { db } from '@/lib/firebase'
+import { useTheme } from '@/contexts/ThemeContext'
+import { getTokens } from '@/lib/dashboardTheme'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
+// ─── Types ────────────────────────────────────────────────────────────────────
 type FrequencyType = 'daily' | 'weekly' | 'monthly'
-
-interface InspectionFrequency {
-  type: FrequencyType
-  value: number
-}
-
+interface InspectionFrequency { type: FrequencyType; value: number }
 interface FrequencyRequest {
   id: string
   feederPointId: string
@@ -36,498 +28,430 @@ interface FrequencyRequest {
   status: 'pending' | 'approved' | 'rejected'
   reviewedBy?: string
   reviewedAt?: any
-  adminNotes?: string
+  adminNotes?: string | null
   createdAt?: any
   updatedAt?: any
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatDate(value: any): string {
-  if (!value) return 'N/A'
-  if (typeof value.toDate === 'function') return value.toDate().toLocaleString()
-  if (value instanceof Date) return value.toLocaleString()
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleString()
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatDate(v: any): string {
+  if (!v) return 'N/A'
+  try {
+    const d = typeof v.toDate === 'function' ? v.toDate()
+      : typeof v._seconds === 'number' ? new Date(v._seconds * 1000)
+      : v instanceof Date ? v : new Date(v)
+    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleString()
+  } catch { return 'N/A' }
+}
+function formatFreq(f: InspectionFrequency): string {
+  const p = f.type === 'daily' ? 'day' : f.type === 'weekly' ? 'week' : 'month'
+  return `${f.value}× per ${p}`
 }
 
-function formatFrequency(freq: InspectionFrequency): string {
-  const period = freq.type === 'daily' ? 'day' : freq.type === 'weekly' ? 'week' : 'month'
-  return `${freq.value}x per ${period}`
-}
-
-// ── Firestore helpers ─────────────────────────────────────────────────────────
-
-function onFrequencyRequestsChange(callback: (requests: FrequencyRequest[]) => void) {
+// ─── Firestore ops (kept exactly as original) ─────────────────────────────────
+function onFrequencyRequestsChange(cb: (r: FrequencyRequest[]) => void) {
   const q = query(collection(db, 'frequencyRequests'), orderBy('createdAt', 'desc'))
-  return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as FrequencyRequest)))
-  })
+  return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() } as FrequencyRequest))))
 }
-
 async function approveFrequencyRequest(
-  requestId: string,
-  feederPointId: string,
-  approvedFrequency: InspectionFrequency,
-  reviewedBy: string,
-  adminNotes?: string
-): Promise<void> {
+  requestId: string, feederPointId: string,
+  approvedFrequency: InspectionFrequency, reviewedBy: string, adminNotes?: string
+) {
   await updateDoc(doc(db, 'frequencyRequests', requestId), {
-    status: 'approved',
-    approvedFrequency,
-    reviewedBy,
-    adminNotes: adminNotes || null,
-    reviewedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    status: 'approved', approvedFrequency, reviewedBy,
+    adminNotes: adminNotes || null, reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
   })
   await updateDoc(doc(db, 'feederPoints', feederPointId), {
-    inspectionFrequency: approvedFrequency,
-    updatedAt: serverTimestamp(),
+    inspectionFrequency: approvedFrequency, updatedAt: serverTimestamp(),
   })
 }
-
-async function rejectFrequencyRequest(
-  requestId: string,
-  reviewedBy: string,
-  adminNotes?: string
-): Promise<void> {
+async function rejectFrequencyRequest(requestId: string, reviewedBy: string, adminNotes?: string) {
   await updateDoc(doc(db, 'frequencyRequests', requestId), {
-    status: 'rejected',
-    reviewedBy,
-    adminNotes: adminNotes || null,
-    reviewedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    status: 'rejected', reviewedBy,
+    adminNotes: adminNotes || null, reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
   })
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FrequencyRequestsPage() {
-  const [requests, setRequests] = useState<FrequencyRequest[]>([])
-  const [selectedRequest, setSelectedRequest] = useState<FrequencyRequest | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
-  const [isUpdating, setIsUpdating] = useState(false)
+  const { theme } = useTheme()
+  const dark = theme === 'dark'
+  const T = getTokens(dark)
 
-  // Review form state
-  const [approvedType, setApprovedType] = useState<FrequencyType>('daily')
-  const [approvedValue, setApprovedValue] = useState('1')
+  const [requests,   setRequests]   = useState<FrequencyRequest[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [statusF,    setStatusF]    = useState<'all'|'pending'|'approved'|'rejected'>('all')
+  const [search,     setSearch]     = useState('')
+  const [selected,   setSelected]   = useState<FrequencyRequest | null>(null)
+  const [zoomedImg,  setZoomedImg]  = useState<string | null>(null)
+  const [updating,   setUpdating]   = useState(false)
+
+  // Review form
+  const [appType,    setAppType]    = useState<FrequencyType>('daily')
+  const [appValue,   setAppValue]   = useState('1')
   const [adminNotes, setAdminNotes] = useState('')
 
   useEffect(() => {
-    const unsubscribe = onFrequencyRequestsChange(data => {
-      setRequests(data)
-      setLoading(false)
-    })
-    return () => unsubscribe?.()
+    const unsub = onFrequencyRequestsChange(data => { setRequests(data); setLoading(false) })
+    return () => unsub?.()
   }, [])
 
-  // Pre-fill review form when a request is selected
+  // Pre-fill form when selecting
   useEffect(() => {
-    if (selectedRequest) {
-      setApprovedType(selectedRequest.requestedFrequency.type)
-      setApprovedValue(String(selectedRequest.requestedFrequency.value))
+    if (selected) {
+      setAppType(selected.requestedFrequency.type)
+      setAppValue(String(selected.requestedFrequency.value))
       setAdminNotes('')
     }
-  }, [selectedRequest])
-
-  const filteredRequests = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase()
-    return requests
-      .filter(r => statusFilter === 'all' || r.status === statusFilter)
-      .filter(r => {
-        if (!term) return true
-        return (
-          r.feederPointName?.toLowerCase().includes(term) ||
-          r.userName?.toLowerCase().includes(term) ||
-          r.comment?.toLowerCase().includes(term)
-        )
-      })
-  }, [requests, statusFilter, searchTerm])
+  }, [selected])
 
   const stats = useMemo(() => ({
-    total: requests.length,
-    pending: requests.filter(r => r.status === 'pending').length,
+    total:    requests.length,
+    pending:  requests.filter(r => r.status === 'pending').length,
     approved: requests.filter(r => r.status === 'approved').length,
     rejected: requests.filter(r => r.status === 'rejected').length,
   }), [requests])
 
-  const handleApprove = async () => {
-    if (!selectedRequest) return
-    const value = parseInt(approvedValue, 10)
-    if (!value || value < 1) {
-      alert('Please enter a valid frequency value.')
-      return
-    }
-    if (!confirm(`Approve ${value}x per ${approvedType} for "${selectedRequest.feederPointName}"?`)) return
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return requests
+      .filter(r => statusF === 'all' || r.status === statusF)
+      .filter(r => !q || [r.feederPointName, r.userName, r.comment].some(v => (v||'').toLowerCase().includes(q)))
+  }, [requests, statusF, search])
 
-    setIsUpdating(true)
+  const handleApprove = async () => {
+    if (!selected) return
+    const val = parseInt(appValue, 10)
+    if (!val || val < 1) { alert('Please enter a valid frequency value.'); return }
+    if (!confirm(`Approve ${val}× per ${appType} for "${selected.feederPointName}"?`)) return
+    setUpdating(true)
     try {
-      await approveFrequencyRequest(
-        selectedRequest.id,
-        selectedRequest.feederPointId,
-        { type: approvedType, value },
-        'SuperAdmin',
-        adminNotes.trim() || undefined
-      )
-      alert('✅ Request approved. Feeder point frequency updated.')
-      setSelectedRequest(null)
-    } catch (e) {
-      console.error(e)
-      alert('❌ Error approving request.')
-    }
-    setIsUpdating(false)
+      await approveFrequencyRequest(selected.id, selected.feederPointId, { type: appType, value: val }, 'SuperAdmin', adminNotes.trim() || undefined)
+      setSelected(null)
+    } catch (e) { console.error(e); alert('Error approving request.') }
+    setUpdating(false)
   }
 
   const handleReject = async () => {
-    if (!selectedRequest) return
+    if (!selected) return
     if (!confirm('Reject this frequency request?')) return
-
-    setIsUpdating(true)
+    setUpdating(true)
     try {
-      await rejectFrequencyRequest(
-        selectedRequest.id,
-        'SuperAdmin',
-        adminNotes.trim() || undefined
-      )
-      alert('Request rejected.')
-      setSelectedRequest(null)
-    } catch (e) {
-      console.error(e)
-      alert('❌ Error rejecting request.')
-    }
-    setIsUpdating(false)
+      await rejectFrequencyRequest(selected.id, 'SuperAdmin', adminNotes.trim() || undefined)
+      setSelected(null)
+    } catch (e) { console.error(e); alert('Error rejecting request.') }
+    setUpdating(false)
   }
 
   const handleDownload = async () => {
-    if (filteredRequests.length === 0) return
+    if (!filtered.length) return
     const XLSX = await import('xlsx')
-    const rows = filteredRequests.map(r => ({
-      'Request ID': r.id,
-      'Feeder Point': r.feederPointName,
-      'User': r.userName,
-      'Requested Frequency': formatFrequency(r.requestedFrequency),
-      'Approved Frequency': r.approvedFrequency ? formatFrequency(r.approvedFrequency) : 'N/A',
-      'Comment': r.comment,
-      'Cleanliness Rating': r.cleanlinessRating || 'N/A',
-      'Status': r.status.toUpperCase(),
-      'Admin Notes': r.adminNotes || '',
-      'Reviewed By': r.reviewedBy || '',
-      'Submitted At': formatDate(r.createdAt),
+    const rows = filtered.map(r => ({
+      'Request ID': r.id, 'Feeder Point': r.feederPointName, User: r.userName,
+      'Requested Frequency': formatFreq(r.requestedFrequency),
+      'Approved Frequency': r.approvedFrequency ? formatFreq(r.approvedFrequency) : 'N/A',
+      Comment: r.comment, 'Cleanliness Rating': r.cleanlinessRating || 'N/A',
+      Status: r.status.toUpperCase(), 'Admin Notes': r.adminNotes || '',
+      'Reviewed By': r.reviewedBy || '', 'Submitted At': formatDate(r.createdAt),
       'Reviewed At': formatDate(r.reviewedAt),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Frequency Requests')
-    XLSX.writeFile(wb, `frequency-requests-${statusFilter}.xlsx`)
+    XLSX.writeFile(wb, `frequency-requests-${statusF}.xlsx`)
   }
 
-  const getStatusBadge = (status: string) => ({
-    pending: 'badge-warning',
-    approved: 'badge-success',
-    rejected: 'badge-danger',
-  }[status] || 'badge-info')
+  const statusColor = (s: string) => s==='approved' ? T.green : s==='rejected' ? T.red : T.amber
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'approved': return <CheckCircle className="h-4 w-4 text-success-600" />
-      case 'rejected': return <XCircle className="h-4 w-4 text-danger-600" />
-      default: return <Clock className="h-4 w-4 text-warning-600" />
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600" />
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent"
+        style={{ borderColor: `${T.accent}30`, borderTopColor: T.accent }} />
+    </div>
+  )
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="border-b border-gray-200 pb-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="space-y-5">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl"
+            style={{ background: T.accentDim, border: `1px solid ${T.accentBorder}` }}>
+            <RefreshCw className="h-6 w-6" style={{ color: T.accent }} />
+          </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Inspection Frequency Requests</h1>
-            <p className="mt-2 text-gray-600">
-              Review and approve reduced inspection frequency requests from taskforce users.
-            </p>
+            <h1 className="text-2xl font-black tracking-tight" style={{ color: T.textPrimary }}>Frequency Requests</h1>
+            <p className="text-sm" style={{ color: T.textMuted }}>Review inspection frequency change requests · {stats.pending} pending</p>
           </div>
-          <button
-            onClick={handleDownload}
-            disabled={filteredRequests.length === 0}
-            className="btn-secondary flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className="h-4 w-4" />
-            <span>Download (.xlsx)</span>
-          </button>
+        </div>
+        <button onClick={handleDownload} disabled={!filtered.length}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+          style={{ background: T.green, color: '#fff', border: 'none', cursor: 'pointer' }}>
+          <Download className="h-4 w-4" /> Export
+        </button>
+      </div>
+
+      {/* KPI */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: 'Pending',  value: stats.pending,  color: T.amber  },
+          { label: 'Approved', value: stats.approved, color: T.green  },
+          { label: 'Rejected', value: stats.rejected, color: T.red    },
+          { label: 'Total',    value: stats.total,    color: T.accent },
+        ].map((s, i) => (
+          <div key={s.label} className="rounded-xl p-3"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: `slideUp 0.4s ease ${i*60}ms both` }}>
+            <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textSecondary }}>{s.label}</p>
+            <p className="text-[20px] font-bold leading-none" style={{ color: s.color, fontFamily: "'JetBrains Mono', monospace" }}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center rounded-2xl p-4"
+        style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: T.textMuted }} />
+          <input type="text" placeholder="Search feeder point, user, comment..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-8 py-2 rounded-xl text-sm"
+            style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:T.textMuted }}>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {(['all','pending','approved','rejected'] as const).map(s => (
+            <button key={s} onClick={() => setStatusF(s)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                background: statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.surface,
+                color: statusF===s ? (dark?'#000':'#fff') : T.textSecondary,
+                border: `1px solid ${statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.cardBorder}`,
+                cursor: 'pointer',
+              }}>
+              {s.charAt(0).toUpperCase()+s.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── Filters ── */}
-      <div className="card">
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
-          <div className="flex items-center space-x-3">
-            <label className="text-sm font-medium text-gray-700">Status:</label>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </div>
-          <div className="flex-1">
-            <input
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by feeder point, user, or comment…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
+      {/* Table */}
+      <div className="rounded-2xl overflow-hidden" style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
+          <h2 className="text-sm font-semibold" style={{ color: T.textPrimary }}>Requests ({filtered.length})</h2>
         </div>
-      </div>
 
-      {/* ── Stat cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <StatCard title="Pending" value={stats.pending} icon={<Clock className="h-6 w-6 text-white" />} bg="bg-warning-500" />
-        <StatCard title="Approved" value={stats.approved} icon={<CheckCircle className="h-6 w-6 text-white" />} bg="bg-success-500" />
-        <StatCard title="Rejected" value={stats.rejected} icon={<XCircle className="h-6 w-6 text-white" />} bg="bg-danger-500" />
-        <StatCard title="Total" value={stats.total} icon={<RefreshCw className="h-6 w-6 text-white" />} bg="bg-primary-500" />
-      </div>
-
-      {/* ── Table ── */}
-      <div className="table-container">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header">Feeder Point</th>
-                <th className="table-header">Requested By</th>
-                <th className="table-header">Requested Frequency</th>
-                <th className="table-header">Approved Frequency</th>
-                <th className="table-header">Cleanliness</th>
-                <th className="table-header">Status</th>
-                <th className="table-header">Submitted</th>
-                <th className="table-header">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredRequests.map(request => (
-                <tr key={request.id} className="hover:bg-gray-50">
-                  <td className="table-cell">
-                    <div className="flex items-center space-x-3">
-                      <div className="p-2 rounded-lg bg-blue-50 text-blue-700">
-                        <RefreshCw className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">{request.feederPointName}</div>
-                        <div className="text-xs text-gray-500 max-w-xs truncate">{request.comment}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div className="text-sm font-medium text-gray-900">{request.userName}</div>
-                  </td>
-                  <td className="table-cell">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {formatFrequency(request.requestedFrequency)}
-                    </span>
-                  </td>
-                  <td className="table-cell">
-                    {request.approvedFrequency ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {formatFrequency(request.approvedFrequency)}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="table-cell">
-                    {request.cleanlinessRating ? (
-                      <div className="flex items-center space-x-1">
-                        <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                        <span className="text-sm text-gray-700">{request.cleanlinessRating}/5</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="table-cell">
-                    <div className="flex items-center space-x-2">
-                      {getStatusIcon(request.status)}
-                      <span className={`badge ${getStatusBadge(request.status)}`}>
-                        {request.status.toUpperCase()}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div className="text-sm text-gray-900">{formatDate(request.createdAt)}</div>
-                    {request.reviewedAt && (
-                      <div className="text-xs text-gray-500">Reviewed: {formatDate(request.reviewedAt)}</div>
-                    )}
-                  </td>
-                  <td className="table-cell">
-                    <button
-                      onClick={() => {
-                        setSelectedRequest(request)
-                        setTimeout(() => {
-                          document.getElementById('details-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                        }, 100)
-                      }}
-                      className="p-2 text-gray-500 hover:text-primary-600 rounded-lg hover:bg-gray-100"
-                      title="View details"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </td>
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <AlertCircle className="h-10 w-10 opacity-20" style={{ color: T.accent }} />
+            <p className="text-sm" style={{ color: T.textMuted }}>No frequency requests found</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: T.surface, borderBottom: `1px solid ${T.cardBorder}` }}>
+                  {['Feeder Point','Requested By','Requested Freq.','Approved Freq.','Cleanliness','Status','Submitted','View'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ fontSize: 10, color: T.accent }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filtered.map(r => {
+                  const sc = statusColor(r.status)
+                  return (
+                    <tr key={r.id} style={{ borderBottom: `1px solid ${T.gridLine}` }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = T.surface}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
 
-        {filteredRequests.length === 0 && (
-          <div className="text-center py-12">
-            <AlertCircle className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-            <div className="text-gray-500">No frequency requests found for current filters.</div>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg"
+                            style={{ background: T.accentDim }}>
+                            <RefreshCw className="h-4 w-4" style={{ color: T.accent }} />
+                          </div>
+                          <div>
+                            <p className="font-semibold truncate max-w-[160px]" style={{ color: T.textPrimary }}>{r.feederPointName}</p>
+                            <p className="text-[10px] truncate max-w-[160px]" style={{ color: T.textMuted }}>{r.comment}</p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <p style={{ color: T.textPrimary }}>{r.userName}</p>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: T.accentDim, color: T.accent, border: `1px solid ${T.accentBorder}` }}>
+                          {formatFreq(r.requestedFrequency)}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {r.approvedFrequency ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{ background: `${T.green}15`, color: T.green, border: `1px solid ${T.green}30` }}>
+                            {formatFreq(r.approvedFrequency)}
+                          </span>
+                        ) : <span style={{ color: T.textMuted }}>—</span>}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {r.cleanlinessRating ? (
+                          <div className="flex items-center gap-1">
+                            <Star className="h-3.5 w-3.5" style={{ color: T.gold, fill: T.gold }} />
+                            <span className="font-bold" style={{ color: T.gold, fontFamily: "'JetBrains Mono', monospace" }}>
+                              {r.cleanlinessRating}/5
+                            </span>
+                          </div>
+                        ) : <span style={{ color: T.textMuted }}>—</span>}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          {r.status==='approved' && <CheckCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {r.status==='rejected' && <XCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {r.status==='pending'  && <Clock className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                            style={{ background: `${sc}15`, color: sc }}>{r.status}</span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: T.textSecondary, fontSize: 11 }}>
+                        {formatDate(r.createdAt)}
+                        {r.reviewedAt && <p className="text-[10px]" style={{ color: T.textMuted }}>Reviewed: {formatDate(r.reviewedAt)}</p>}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => { setSelected(r); setTimeout(() => document.getElementById('freq-details')?.scrollIntoView({ behavior:'smooth', block:'start' }), 100) }}
+                          className="p-1.5 rounded-lg"
+                          style={{ background: T.accentDim, color: T.accent, border: 'none', cursor: 'pointer' }}>
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {/* ── Detail Card ── */}
-      {selectedRequest && (
-        <div id="details-card" className="card mt-6 border-2 border-primary-500 shadow-lg">
-          <div className="flex justify-between items-start">
+      {selected && (
+        <div id="freq-details" className="rounded-2xl p-6 space-y-5"
+          style={{ background: T.card, border: `2px solid ${T.accent}` }}>
+
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Frequency Change Request</p>
-              <h2 className="text-2xl font-bold text-gray-900">{selectedRequest.feederPointName}</h2>
-              <p className="text-gray-600 mt-1">{selectedRequest.comment}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textMuted }}>Frequency Change Request</p>
+              <h2 className="text-xl font-bold" style={{ color: T.textPrimary }}>{selected.feederPointName}</h2>
+              <p className="text-sm mt-0.5" style={{ color: T.textSecondary }}>{selected.comment}</p>
             </div>
-            <button
-              onClick={() => setSelectedRequest(null)}
-              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-            >
+            <button onClick={() => setSelected(null)} className="flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0"
+              style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textSecondary, cursor: 'pointer' }}>
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <InfoRow label="Requested By" value={selectedRequest.userName} />
-            <InfoRow label="Status" value={selectedRequest.status.toUpperCase()} />
-            <InfoRow label="Requested Frequency" value={formatFrequency(selectedRequest.requestedFrequency)} />
-            {selectedRequest.approvedFrequency && (
-              <InfoRow label="Approved Frequency" value={formatFrequency(selectedRequest.approvedFrequency)} />
-            )}
-            {selectedRequest.cleanlinessRating && (
-              <InfoRow label="Cleanliness Rating" value={`${selectedRequest.cleanlinessRating} / 5`} />
-            )}
-            <InfoRow label="Submitted At" value={formatDate(selectedRequest.createdAt)} />
-            {selectedRequest.reviewedBy && (
-              <InfoRow label="Reviewed By" value={selectedRequest.reviewedBy} />
-            )}
-            {selectedRequest.reviewedAt && (
-              <InfoRow label="Reviewed At" value={formatDate(selectedRequest.reviewedAt)} />
-            )}
+          {/* Info grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label: 'Requested By',        value: selected.userName                                              },
+              { label: 'Status',              value: selected.status.toUpperCase()                                  },
+              { label: 'Requested Frequency', value: formatFreq(selected.requestedFrequency)                       },
+              { label: 'Approved Frequency',  value: selected.approvedFrequency ? formatFreq(selected.approvedFrequency) : '—' },
+              { label: 'Cleanliness Rating',  value: selected.cleanlinessRating ? `${selected.cleanlinessRating}/5` : '—' },
+              { label: 'Submitted At',        value: formatDate(selected.createdAt)                                 },
+              { label: 'Reviewed By',         value: selected.reviewedBy || '—'                                     },
+              { label: 'Reviewed At',         value: selected.reviewedAt ? formatDate(selected.reviewedAt) : '—'   },
+            ].map(row => (
+              <div key={row.label} className="rounded-xl px-3 py-2.5"
+                style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
+                <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: T.textMuted }}>{row.label}</p>
+                <p className="text-sm font-medium" style={{ color: T.textPrimary }}>{row.value}</p>
+              </div>
+            ))}
           </div>
 
-          {/* Images */}
-          {selectedRequest.images?.length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Supporting Photos</p>
-              <div className="flex flex-wrap gap-3">
-                {selectedRequest.images.map((url, idx) => (
-                  <img
-                    key={idx}
-                    src={url}
-                    alt={`Evidence ${idx + 1}`}
-                    onClick={() => setZoomedImage(url)}
-                    className="h-24 w-24 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
-                  />
+          {/* Supporting photos */}
+          {selected.images?.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textSecondary }}>Supporting Photos</p>
+              <div className="flex flex-wrap gap-2">
+                {selected.images.map((url, i) => (
+                  <div key={i} className="group relative h-24 w-24 rounded-xl overflow-hidden cursor-pointer"
+                    style={{ border: `1px solid ${T.cardBorder}` }}
+                    onClick={() => setZoomedImg(url)}>
+                    <img src={url} alt={`Evidence ${i+1}`} className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                      <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           )}
 
-          {selectedRequest.adminNotes && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Admin Notes</p>
-              <p className="text-sm text-blue-800">{selectedRequest.adminNotes}</p>
+          {/* Admin notes display */}
+          {selected.adminNotes && (
+            <div className="rounded-xl px-4 py-3" style={{ background: T.accentDim, border: `1px solid ${T.accentBorder}` }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.accent }}>Admin Notes</p>
+              <p className="text-sm" style={{ color: T.textPrimary }}>{selected.adminNotes}</p>
             </div>
           )}
 
-          {/* Review form — only show for pending */}
-          {selectedRequest.status === 'pending' && (
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <p className="text-sm font-semibold text-gray-700 mb-3">Set Approved Frequency</p>
+          {/* Review form — pending only */}
+          {selected.status === 'pending' && (
+            <div className="rounded-xl p-4 space-y-4" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
+              <p className="text-sm font-semibold" style={{ color: T.textPrimary }}>Set Approved Frequency</p>
 
-              <div className="flex flex-wrap items-center gap-4 mb-4">
-                {/* Type */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-sm text-gray-600">Type:</label>
-                  <select
-                    value={approvedType}
-                    onChange={e => setApprovedType(e.target.value as FrequencyType)}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: T.textSecondary }}>Type</label>
+                  <select value={appType} onChange={e => setAppType(e.target.value as FrequencyType)}
+                    style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, borderRadius: 8, padding: '6px 10px', fontSize: 12, outline: 'none' }}>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                   </select>
                 </div>
-
-                {/* Value */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-sm text-gray-600">Times:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="99"
-                    value={approvedValue}
-                    onChange={e => setApprovedValue(e.target.value)}
-                    className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-500">
-                    per {approvedType === 'daily' ? 'day' : approvedType === 'weekly' ? 'week' : 'month'}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: T.textSecondary }}>Times</label>
+                  <input type="number" min="1" max="99" value={appValue} onChange={e => setAppValue(e.target.value)}
+                    style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, borderRadius: 8, padding: '6px 10px', fontSize: 12, outline: 'none', width: 72 }} />
+                  <span className="text-xs" style={{ color: T.textMuted }}>
+                    per {appType === 'daily' ? 'day' : appType === 'weekly' ? 'week' : 'month'}
                   </span>
                 </div>
               </div>
 
-              {/* Admin notes */}
-              <div className="mb-4">
-                <label className="text-sm text-gray-600 block mb-1">Admin Notes (optional)</label>
-                <textarea
-                  value={adminNotes}
-                  onChange={e => setAdminNotes(e.target.value)}
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider block mb-1.5" style={{ color: T.textSecondary }}>Admin Notes (optional)</label>
+                <textarea rows={2} value={adminNotes} onChange={e => setAdminNotes(e.target.value)}
                   placeholder="Add a note for the user…"
-                  rows={2}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                />
+                  className="w-full p-3 rounded-xl text-sm resize-none"
+                  style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
               </div>
 
               <div className="flex gap-3">
-                <button
-                  onClick={handleApprove}
-                  disabled={isUpdating}
-                  className="px-5 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
-                >
-                  <CheckCircle className="h-4 w-4" />
-                  <span>{isUpdating ? 'Saving…' : 'Approve'}</span>
+                <button onClick={handleApprove} disabled={updating}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+                  style={{ background: T.green, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  <CheckCircle className="h-4 w-4" /> {updating ? 'Saving…' : 'Approve'}
                 </button>
-                <button
-                  onClick={handleReject}
-                  disabled={isUpdating}
-                  className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center space-x-2"
-                >
-                  <XCircle className="h-4 w-4" />
-                  <span>{isUpdating ? 'Saving…' : 'Reject'}</span>
+                <button onClick={handleReject} disabled={updating}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+                  style={{ background: T.red, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  <XCircle className="h-4 w-4" /> {updating ? 'Saving…' : 'Reject'}
                 </button>
               </div>
             </div>
@@ -535,53 +459,24 @@ export default function FrequencyRequestsPage() {
         </div>
       )}
 
-      {/* ── Image zoom modal ── */}
-      {zoomedImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4"
-          onClick={() => setZoomedImage(null)}
-        >
-          <div className="relative max-w-3xl w-full">
-            <button
-              onClick={() => setZoomedImage(null)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300"
-            >
-              <X className="h-6 w-6" />
-            </button>
-            <img
-              src={zoomedImage}
-              alt="Zoomed"
-              className="w-full rounded-lg max-h-[80vh] object-contain"
-              onClick={e => e.stopPropagation()}
-            />
-          </div>
+      {/* Image zoom */}
+      {zoomedImg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.95)' }} onClick={() => setZoomedImg(null)}>
+          <button onClick={() => setZoomedImg(null)} className="absolute top-4 right-4 rounded-full p-2"
+            style={{ background: 'rgba(255,255,255,0.15)', color:'#fff', border:'none', cursor:'pointer' }}>
+            <X className="h-5 w-5" />
+          </button>
+          <a href={zoomedImg} target="_blank" rel="noopener noreferrer" className="absolute top-4 right-16 rounded-full p-2"
+            style={{ background: 'rgba(255,255,255,0.15)', color:'#fff' }} onClick={e => e.stopPropagation()}>
+            <ExternalLink className="h-5 w-5" />
+          </a>
+          <img src={zoomedImg} alt="Zoomed" className="max-w-full max-h-full object-contain rounded-xl"
+            onClick={e => e.stopPropagation()} />
         </div>
       )}
-    </div>
-  )
-}
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatCard({ title, value, icon, bg }: { title: string; value: number; icon: ReactNode; bg: string }) {
-  return (
-    <div className="stat-card">
-      <div className="flex items-center">
-        <div className={`p-3 rounded-lg ${bg}`}>{icon}</div>
-        <div className="ml-4">
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-semibold text-gray-900">{value}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function InfoRow({ label, value }: { label: string; value: any }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
-      <p className="text-sm text-gray-900 break-words">{value || 'N/A'}</p>
+      <style>{`@keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }`}</style>
     </div>
   )
 }

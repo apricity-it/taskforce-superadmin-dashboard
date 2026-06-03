@@ -1,1285 +1,838 @@
-import { useEffect, useState } from 'react'
-import { Search, Filter, Download, Eye, Edit, Trash2, X, MapPin, Calendar, FileText, TrendingUp, AlertTriangle, CheckCircle, Users, Shield, Activity } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import {
+  Search, Filter, Download, Eye, Edit2, Trash2, X, MapPin, Calendar,
+  FileText, TrendingUp, AlertTriangle, CheckCircle, Users, Shield,
+  Activity, RefreshCw, Key, User as UserIcon, Phone, Mail,
+  Building, ChevronDown, ChevronUp, Image as ImageIcon,
+} from 'lucide-react'
 import { DataService, User } from '@/lib/dataService'
 import { useAuth } from '@/contexts/AuthContext'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTheme } from '@/contexts/ThemeContext'
+import { getTokens } from '@/lib/dashboardTheme'
+import * as XLSX from 'xlsx'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function coerceDate(v: any): Date | null {
+  if (!v) return null
+  if (typeof v.toDate === 'function') return v.toDate()
+  if (typeof v._seconds === 'number') return new Date(v._seconds * 1000)
+  if (v instanceof Date) return v
+  const d = new Date(v); return isNaN(d.getTime()) ? null : d
+}
+function fmtDate(v: any) { const d = coerceDate(v); return d ? d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—' }
+
+const ROLE_LABELS: Record<string,string> = {
+  admin: 'Admin', task_force_team: 'Task Force', commissioner: 'Commissioner',
+  pmc_member: 'PMC Member', qc: 'QC Officer', action_officer: 'Action Officer',
+}
+const ROLE_COLOR = (role: string, T: any): string => ({
+  admin: T.red, task_force_team: T.accent, commissioner: T.purple,
+  pmc_member: T.amber, qc: T.green, action_officer: T.gold,
+}[role] ?? T.textMuted)
+
+function Avatar({ user, size = 36, T }: { user: User; size?: number; T: any }) {
+  const [imgErr, setImgErr] = useState(false)
+  const photoUrl = (user as any).profileImageUrl || (user as any).profile?.photoUrl || (user as any).photoUrl
+  if (photoUrl && !imgErr) {
+    return <img src={photoUrl} alt={user.name} onError={() => setImgErr(true)}
+      className="rounded-full object-cover flex-shrink-0"
+      style={{ width: size, height: size, border: `2px solid ${T.cardBorder}` }} />
+  }
+  const initials = (user.name || '?').split(' ').map((n: string) => n[0]).slice(0,2).join('').toUpperCase()
+  return (
+    <div className="rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
+      style={{ width: size, height: size, background: `${ROLE_COLOR(user.role, T)}20`, color: ROLE_COLOR(user.role, T), border: `2px solid ${T.cardBorder}` }}>
+      {initials}
+    </div>
+  )
+}
+
+function SBadge({ label, color, T }: { label: string; color: string; T: any }) {
+  return (
+    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap"
+      style={{ background: `${color}18`, border: `1px solid ${color}30`, color }}>
+      {label}
+    </span>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UsersPage() {
+  const { user: currentUser } = useAuth()
+  const { theme } = useTheme()
+  const dark = theme === 'dark'
+  const T = getTokens(dark)
+  const qc = useQueryClient()
+  const isPmcMember = currentUser?.role === 'pmc_member'
+
+  // ── Data ──
   const [users, setUsers] = useState<User[]>([])
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [roleFilter, setRoleFilter] = useState('all')
-  const [selectedUser, setSelectedUser] = useState<User | null>(null)
-  const [showUserModal, setShowUserModal] = useState(false)
-  const [userReports, setUserReports] = useState<any[]>([])
-  const [userFeederPoints, setUserFeederPoints] = useState<any[]>([])
-  const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [organizationFilter, setOrganizationFilter] = useState('all')
-  const [departmentFilter, setDepartmentFilter] = useState('all')
-  const [sortBy, setSortBy] = useState('createdAt')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  const [passwordSearchName, setPasswordSearchName] = useState('')
-  const [passwordSearchResult, setPasswordSearchResult] = useState<User | null>(null)
-  const [passwordResetInput, setPasswordResetInput] = useState('')
-  const [passwordActionStatus, setPasswordActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  const [passwordFetchLoading, setPasswordFetchLoading] = useState(false)
-  const [passwordUpdateLoading, setPasswordUpdateLoading] = useState(false)
-  const { user } = useAuth()
-  const isPmcMember = user?.role === 'pmc_member'
-
   useEffect(() => {
-    if (isPmcMember) {
-      setUsers([])
-      setFilteredUsers([])
-      setLoading(false)
-      return
-    }
-
-    const unsubscribe = DataService.onUsersChange(usersData => {
-      setUsers(usersData)
-      setLoading(false)
-    })
-
-    return () => unsubscribe()
+    if (isPmcMember) { setLoading(false); return }
+    const unsub = DataService.onUsersChange((d: User[]) => { setUsers(d); setLoading(false) })
+    return () => unsub()
   }, [isPmcMember])
 
-  useEffect(() => {
-    filterUsers()
-  }, [users, searchTerm, roleFilter, statusFilter, organizationFilter, departmentFilter, sortBy, sortOrder])
+  // ── Filters ──
+  const [search,       setSearch]       = useState('')
+  const [roleF,        setRoleF]        = useState('all')
+  const [statusF,      setStatusF]      = useState('all')
+  const [orgF,         setOrgF]         = useState('all')
+  const [deptF,        setDeptF]        = useState('all')
+  const [sortBy,       setSortBy]       = useState('createdAt')
+  const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('desc')
+  const [showFilters,  setShowFilters]  = useState(false)
 
-  const loadUsers = async () => {
-    setLoading(true);
-    const usersData = await DataService.getAllUsers();
-    setUsers(usersData);
-    setLoading(false);
-  };
+  // ── Modals ──
+  const [viewUser,     setViewUser]     = useState<User | null>(null)
+  const [editUser,     setEditUser]     = useState<User | null>(null)
+  const [showPwModal,  setShowPwModal]  = useState(false)
 
-  const handlePasswordUserLookup = async () => {
-    const searchName = passwordSearchName.trim();
-    setPasswordActionStatus(null);
-    setPasswordResetInput('');
+  // ── View modal data ──
+  const [viewReports,  setViewReports]  = useState<any[]>([])
+  const [viewFPs,      setViewFPs]      = useState<any[]>([])
+  const [viewTab,      setViewTab]      = useState<'reports'|'fps'>('reports')
+  const [viewLoading,  setViewLoading]  = useState(false)
 
-    if (!searchName) {
-      setPasswordSearchResult(null);
-      setPasswordActionStatus({ type: 'error', message: 'Please enter a name before searching.' });
-      return;
-    }
+  // ── Edit ──
+  const [editSaving,   setEditSaving]   = useState(false)
+  const [editPw,       setEditPw]       = useState('')
+  const [editPwStatus, setEditPwStatus] = useState<{type:'success'|'error';msg:string}|null>(null)
+  const [editPwUpdating,setEditPwUpdating] = useState(false)
 
-    setPasswordFetchLoading(true);
+  // ── Password reset ──
+  const [pwSearch,     setPwSearch]     = useState('')
+  const [pwResult,     setPwResult]     = useState<User | null>(null)
+  const [pwNew,        setPwNew]        = useState('')
+  const [pwStatus,     setPwStatus]     = useState<{type:'success'|'error';msg:string}|null>(null)
+  const [pwSearching,  setPwSearching]  = useState(false)
+  const [pwUpdating,   setPwUpdating]   = useState(false)
 
-    try {
-      const normalizedSearch = searchName.toLowerCase();
-      const localMatches = users.filter(user => (user.name || '').trim().toLowerCase() === normalizedSearch);
+  // ── Derived ──
+  const uniqueOrgs = useMemo(() => {
+    const s = new Set<string>(); let hasEmpty = false
+    users.forEach(u => { const v = u.organization?.trim(); if (v) s.add(v); else hasEmpty = true })
+    const arr = Array.from(s).sort(); if (hasEmpty) arr.push('Unassigned'); return arr
+  }, [users])
 
-      if (localMatches.length === 1) {
-        setPasswordSearchResult(localMatches[0]);
-        setPasswordActionStatus({
-          type: 'success',
-          message: `Loaded ${localMatches[0].name}. Enter a new password to update their account.`
-        });
-        return;
-      }
+  const uniqueDepts = useMemo(() => {
+    const s = new Set<string>(); let hasEmpty = false
+    users.forEach(u => { const v = u.department?.trim(); if (v) s.add(v); else hasEmpty = true })
+    const arr = Array.from(s).sort(); if (hasEmpty) arr.push('Unassigned'); return arr
+  }, [users])
 
-      if (localMatches.length > 1) {
-        setPasswordSearchResult(null);
-        setPasswordActionStatus({
-          type: 'error',
-          message: 'Multiple users share that name. Refine the search with the full name or include an identifier.'
-        });
-        return;
-      }
-
-      const userRecord = await DataService.findUserByName(searchName);
-
-      if (!userRecord) {
-        setPasswordSearchResult(null);
-        setPasswordActionStatus({ type: 'error', message: `No user found with the name "${searchName}".` });
-      } else {
-        setPasswordSearchResult(userRecord);
-        setPasswordActionStatus({
-          type: 'success',
-          message: `Loaded ${userRecord.name}. Enter a new password to update their account.`
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching user by name:', error);
-      setPasswordSearchResult(null);
-      setPasswordActionStatus({ type: 'error', message: 'Failed to fetch user. Please try again.' });
-    } finally {
-      setPasswordFetchLoading(false);
-    }
-  };
-
-  const handlePasswordUpdate = async () => {
-    if (!passwordSearchResult) {
-      setPasswordActionStatus({ type: 'error', message: 'Fetch a user before updating the password.' });
-      return;
-    }
-
-    const newPassword = passwordResetInput.trim();
-    if (!newPassword) {
-      setPasswordActionStatus({ type: 'error', message: 'Please enter a new password.' });
-      return;
-    }
-
-    setPasswordUpdateLoading(true);
-    setPasswordActionStatus(null);
-
-    try {
-      await DataService.updateUserPassword(passwordSearchResult.id, newPassword);
-      setPasswordActionStatus({
-        type: 'success',
-        message: `Password updated for ${passwordSearchResult.name}.`
-      });
-      setPasswordResetInput('');
-    } catch (error) {
-      console.error('Error updating user password:', error);
-      setPasswordActionStatus({
-        type: 'error',
-        message: 'Could not update password. Please try again.'
-      });
-    } finally {
-      setPasswordUpdateLoading(false);
-    }
-  };
-
-  const filterUsers = () => {
-    let filtered = [...users]
-    const normalizedSearch = searchTerm.trim().toLowerCase()
-    const normalizeRole = (value?: string | null) => (value || '').toLowerCase().replace(/\s+/g, '_')
-    const normalizedRoleFilter = normalizeRole(roleFilter)
-
-    // Search filter
-    if (normalizedSearch) {
-      filtered = filtered.filter(user => {
-        const name = (user.name || '').toLowerCase()
-        const email = (user.email || '').toLowerCase()
-        const phone = (user.phone || '').toString().toLowerCase()
-        const organization = (user.organization || '').toLowerCase()
-        const department = (user.department || '').toLowerCase()
-
-        return (
-          name.includes(normalizedSearch) ||
-          email.includes(normalizedSearch) ||
-          phone.includes(normalizedSearch) ||
-          organization.includes(normalizedSearch) ||
-          department.includes(normalizedSearch)
-        )
-      })
-    }
-
-    // Role filter
-    if (roleFilter !== 'all') {
-      filtered = filtered.filter(user => normalizeRole(user.role) === normalizedRoleFilter)
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(user => {
-        const isActive = Boolean(user.isActive)
-        return statusFilter === 'active' ? isActive : !isActive
-      })
-    }
-
-    // Organization filter
-    if (organizationFilter !== 'all') {
-      filtered = filtered.filter(user => {
-        const trimmedOrg = user.organization?.trim()
-        if (organizationFilter === 'Unassigned') {
-          return !trimmedOrg
-        }
-        return trimmedOrg === organizationFilter
-      })
-    }
-
-    // Department filter
-    if (departmentFilter !== 'all') {
-      filtered = filtered.filter(user => {
-        const trimmedDept = user.department?.trim()
-        if (departmentFilter === 'Unassigned') {
-          return !trimmedDept
-        }
-        return trimmedDept === departmentFilter
-      })
-    }
-
-    // Sorting
-    filtered.sort((a, b) => {
-      const resolveString = (value?: string | null) => (value || '').toLowerCase()
-      const resolveDateValue = (value: any) => {
-        if (!value) return 0
-        if (typeof value.toDate === 'function') {
-          const date = value.toDate()
-          return date instanceof Date ? date.getTime() : 0
-        }
-        if (value instanceof Date) {
-          return value.getTime()
-        }
-        const parsed = new Date(value)
-        return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
-      }
-
-      let aValue: string | number
-      let bValue: string | number
-
+  const filtered = useMemo(() => {
+    let list = [...users]
+    const q = search.trim().toLowerCase()
+    if (q) list = list.filter(u =>
+      [u.name, u.email, u.phone, u.organization, u.department].some(v => (v||'').toLowerCase().includes(q))
+    )
+    if (roleF   !== 'all') list = list.filter(u => (u.role||'').toLowerCase().replace(/\s+/g,'_') === roleF)
+    if (statusF !== 'all') list = list.filter(u => statusF === 'active' ? u.isActive : !u.isActive)
+    if (orgF    !== 'all') list = list.filter(u => orgF === 'Unassigned' ? !u.organization?.trim() : u.organization?.trim() === orgF)
+    if (deptF   !== 'all') list = list.filter(u => deptF === 'Unassigned' ? !u.department?.trim() : u.department?.trim() === deptF)
+    list.sort((a, b) => {
+      const str = (v?: string|null) => (v||'').toLowerCase()
+      const dt  = (v: any) => { const d = coerceDate(v); return d ? d.getTime() : 0 }
+      let av: string|number, bv: string|number
       switch (sortBy) {
-        case 'name':
-          aValue = resolveString(a.name)
-          bValue = resolveString(b.name)
-          break;
-        case 'email':
-          aValue = resolveString(a.email)
-          bValue = resolveString(b.email)
-          break;
-        case 'role':
-          aValue = resolveString(a.role)
-          bValue = resolveString(b.role)
-          break;
-        case 'organization':
-          aValue = resolveString(a.organization)
-          bValue = resolveString(b.organization)
-          break;
-        case 'createdAt':
-        default:
-          aValue = resolveDateValue(a.createdAt)
-          bValue = resolveDateValue(b.createdAt)
-          break;
+        case 'name':         av = str(a.name);         bv = str(b.name);         break
+        case 'email':        av = str(a.email);        bv = str(b.email);        break
+        case 'role':         av = str(a.role);         bv = str(b.role);         break
+        case 'organization': av = str(a.organization); bv = str(b.organization); break
+        default:             av = dt(a.createdAt);     bv = dt(b.createdAt);     break
       }
-
-      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1
-      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1
-      return 0
+      return av < bv ? (sortDir==='asc'?-1:1) : av > bv ? (sortDir==='asc'?1:-1) : 0
     })
+    return list
+  }, [users, search, roleF, statusF, orgF, deptF, sortBy, sortDir])
 
-    setFilteredUsers(filtered)
-  }
+  const stats = useMemo(() => ({
+    total:       users.length,
+    active:      users.filter(u => u.isActive).length,
+    inactive:    users.filter(u => !u.isActive).length,
+    admin:       users.filter(u => u.role === 'admin').length,
+    taskForce:   users.filter(u => u.role === 'task_force_team').length,
+    commissioner:users.filter(u => u.role === 'commissioner').length,
+    qc:          users.filter(u => u.role === 'qc').length,
+  }), [users])
 
-  const getRoleBadge = (role: string) => {
-    const roleColors = {
-      admin: 'badge-danger',
-      task_force_team: 'badge-info',
-      commissioner: 'badge-warning',
-      pmc_member: 'badge-primary'
-    }
-    return roleColors[role as keyof typeof roleColors] || 'badge-info'
-  }
+  const activeFilters = [search, roleF!=='all', statusF!=='all', orgF!=='all', deptF!=='all'].filter(Boolean).length
 
-  const getStatusBadge = (isActive: boolean) => {
-    return isActive ? 'badge-success' : 'badge-danger'
-  }
-
-  // Get unique organizations for filter dropdown
-  const getUniqueOrganizations = () => {
-    const organizationsSet = new Set<string>()
-    let hasUnassigned = false
-
-    users.forEach(user => {
-      const trimmedOrganization = user.organization?.trim()
-      if (trimmedOrganization) {
-        organizationsSet.add(trimmedOrganization)
-      } else {
-        hasUnassigned = true
-      }
-    })
-
-    const organizations = Array.from(organizationsSet).sort((a, b) => a.localeCompare(b))
-    if (hasUnassigned) {
-      organizations.push('Unassigned')
-    }
-
-    return organizations
-  }
-
-  // Get unique departments for filter dropdown
-  const getUniqueDepartments = () => {
-    const departmentsSet = new Set<string>()
-    let hasUnassigned = false
-
-    users.forEach(user => {
-      const trimmedDepartment = user.department?.trim()
-      if (trimmedDepartment) {
-        departmentsSet.add(trimmedDepartment)
-      } else {
-        hasUnassigned = true
-      }
-    })
-
-    const departments = Array.from(departmentsSet).sort((a, b) => a.localeCompare(b))
-    if (hasUnassigned) {
-      departments.push('Unassigned')
-    }
-
-    return departments
-  }
-
-  // Get role statistics for current filtered users
-  const getRoleStats = () => {
-    const stats = {
-      total: filteredUsers.length,
-      admin: filteredUsers.filter(u => u.role === 'admin').length,
-      taskForce: filteredUsers.filter(u => u.role === 'task_force_team').length,
-      commissioner: filteredUsers.filter(u => u.role === 'commissioner').length,
-      active: filteredUsers.filter(u => u.isActive).length,
-      inactive: filteredUsers.filter(u => !u.isActive).length
-    }
-    return stats
-  }
-
-  const handleViewUser = async (user: User) => {
-    setSelectedUser(user)
-    setShowUserModal(true)
-
+  // ── Handlers ──
+  const handleViewUser = async (u: User) => {
+    setViewUser(u); setViewTab('reports'); setViewReports([]); setViewFPs([])
+    setViewLoading(true)
     try {
-      // Load user's reports and feeder points
-      const [reports, feederPoints] = await Promise.all([
-        DataService.getUserReports(user.id),
-        DataService.getUserFeederPoints(user.id)
-      ])
-      setUserReports(reports)
-      setUserFeederPoints(feederPoints)
-    } catch (error) {
-      console.error('Error loading user details:', error)
-      setUserReports([])
-      setUserFeederPoints([])
-    }
+      const [reps, fps] = await Promise.all([DataService.getUserReports(u.id), DataService.getUserFeederPoints(u.id)])
+      setViewReports(reps); setViewFPs(fps)
+    } catch { setViewReports([]); setViewFPs([]) }
+    finally { setViewLoading(false) }
   }
 
-  const handleEditUser = (user: User) => {
-    setEditingUser({ ...user })
-    setShowEditModal(true)
+  // Reset pw state when opening edit drawer
+  const openEditUser = (u: User) => { setEditUser({...u}); setEditPw(''); setEditPwStatus(null) }
+
+  const handleEditPwUpdate = async () => {
+    if (!editUser || !editPw.trim()) return
+    setEditPwUpdating(true); setEditPwStatus(null)
+    try {
+      await DataService.updateUserPassword(editUser.id, editPw.trim())
+      setEditPwStatus({ type:'success', msg:`Password updated for ${editUser.name}.` }); setEditPw('')
+    } catch { setEditPwStatus({ type:'error', msg:'Update failed. Try again.' }) }
+    finally { setEditPwUpdating(false) }
   }
 
   const handleSaveUser = async () => {
-    if (!editingUser) return
-
+    if (!editUser) return; setEditSaving(true)
     try {
-      await DataService.updateUser(editingUser.id, editingUser)
-      await loadUsers() // Reload users
-      setShowEditModal(false)
-      setEditingUser(null)
-      alert('User updated successfully!')
-    } catch (error) {
-      console.error('Error updating user:', error)
-      alert('Error updating user. Please try again.')
-    }
+      await DataService.updateUser(editUser.id, editUser)
+      const unsub = DataService.onUsersChange((d: User[]) => { setUsers(d); unsub() })
+      setEditUser(null)
+    } catch { alert('Error updating user.') }
+    finally { setEditSaving(false) }
   }
 
-  const handleDeleteUser = async (user: User) => {
-    if (!confirm(`Are you sure you want to delete user "${user.name}"? This action cannot be undone.`)) {
-      return
-    }
-
+  const handleDeleteUser = async (u: User) => {
+    if (!confirm(`Delete "${u.name}"? This cannot be undone.`)) return
     try {
-      await DataService.deleteUser(user.id)
-      await loadUsers() // Reload users
-      alert('User deleted successfully!')
-    } catch (error) {
-      console.error('Error deleting user:', error)
-      alert('Error deleting user. Please try again.')
-    }
+      await DataService.deleteUser(u.id)
+      const unsub = DataService.onUsersChange((d: User[]) => { setUsers(d); unsub() })
+    } catch { alert('Error deleting user.') }
   }
 
-  if (isPmcMember) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-white shadow rounded-lg p-6 text-center max-w-md">
-          <h1 className="text-xl font-semibold text-gray-900">Access Restricted</h1>
-          <p className="mt-2 text-gray-600">User management is limited to administrator accounts.</p>
-        </div>
-      </div>
-    )
+  const handlePwLookup = async () => {
+    const name = pwSearch.trim(); setPwStatus(null); setPwResult(null); setPwNew('')
+    if (!name) { setPwStatus({ type:'error', msg:'Enter a name to search.' }); return }
+    setPwSearching(true)
+    try {
+      const local = users.filter(u => (u.name||'').trim().toLowerCase() === name.toLowerCase())
+      if (local.length === 1) { setPwResult(local[0]); setPwStatus({ type:'success', msg:`Found: ${local[0].name}` }); return }
+      if (local.length > 1) { setPwStatus({ type:'error', msg:'Multiple matches. Use exact full name.' }); return }
+      const found = await DataService.findUserByName(name)
+      if (!found) setPwStatus({ type:'error', msg:`No user found: "${name}"` })
+      else { setPwResult(found); setPwStatus({ type:'success', msg:`Found: ${found.name}` }) }
+    } catch { setPwStatus({ type:'error', msg:'Lookup failed. Try again.' }) }
+    finally { setPwSearching(false) }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
+  const handlePwUpdate = async () => {
+    if (!pwResult || !pwNew.trim()) { setPwStatus({ type:'error', msg:'Enter a new password.' }); return }
+    setPwUpdating(true); setPwStatus(null)
+    try {
+      await DataService.updateUserPassword(pwResult.id, pwNew.trim())
+      setPwStatus({ type:'success', msg:`Password updated for ${pwResult.name}.` }); setPwNew('')
+    } catch { setPwStatus({ type:'error', msg:'Update failed. Try again.' }) }
+    finally { setPwUpdating(false) }
   }
+
+  const handleExport = () => {
+    const rows = filtered.map((u, i) => ({
+      '#': i + 1,
+      Name: u.name || '',
+      Email: u.email || '',
+      Phone: u.phone || '',
+      Role: ROLE_LABELS[u.role] || u.role || '',
+      Organization: u.organization || '',
+      Department: u.department || '',
+      Status: u.isActive ? 'Active' : 'Inactive',
+      'Zone': (u as any).zoneNumber || '',
+      'Employee Code': (u as any).employeeCode || '',
+      Joined: fmtDate(u.createdAt),
+      'Approved By': (u as any).approvedBy || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Users')
+    const url = URL.createObjectURL(new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}))
+    const a = document.createElement('a'); a.href = url; a.download = `Users_${new Date().toISOString().split('T')[0]}.xlsx`; a.click(); URL.revokeObjectURL(url)
+  }
+
+  const inputSt = { background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textPrimary, borderRadius:10, padding:'8px 12px', fontSize:13, outline:'none', width:'100%' }
+  const selectSt = { ...inputSt }
+
+  if (isPmcMember) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="rounded-2xl p-8 text-center" style={{ background:T.card, border:`1px solid ${T.cardBorder}` }}>
+        <Shield className="h-10 w-10 mx-auto mb-3 opacity-30" style={{ color:T.red }} />
+        <h2 className="text-base font-bold" style={{ color:T.textPrimary }}>Access Restricted</h2>
+        <p className="text-sm mt-1" style={{ color:T.textMuted }}>User management is for administrators only.</p>
+      </div>
+    </div>
+  )
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" style={{ borderColor:`${T.accent}30`, borderTopColor:T.accent }} />
+    </div>
+  )
 
   return (
-    <div className="space-y-6 scrollable-content">
-      {/* Page Header */}
-      <div className="border-b border-gray-200 pb-4">
-        <div className="flex justify-between items-center">
+    <div className="space-y-5">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background:T.accentDim, border:`1px solid ${T.accentBorder}` }}>
+            <Users className="h-6 w-6" style={{ color:T.accent }} />
+          </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Users Management</h1>
-            <p className="mt-2 text-gray-600">
-              Showing {filteredUsers.length} of {users.length} users
-              {(roleFilter !== 'all' || statusFilter !== 'all' || organizationFilter !== 'all' || departmentFilter !== 'all' || searchTerm) &&
-                <span className="text-blue-600 font-medium"> (filtered)</span>
-              }
+            <h1 className="text-2xl font-black tracking-tight" style={{ color:T.textPrimary }}>Users</h1>
+            <p className="text-sm" style={{ color:T.textMuted }}>
+              {filtered.length} of {users.length} users
+              {activeFilters > 0 && <span style={{ color:T.accent }}> (filtered)</span>}
             </p>
           </div>
-          <button className="btn-primary flex items-center space-x-2">
-            <Download className="h-4 w-4" />
-            <span>Export Users</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowPwModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold"
+            style={{ background:`${T.purple}15`, color:T.purple, border:`1px solid ${T.purple}30`, cursor:'pointer' }}>
+            <Key className="h-4 w-4" /> Password Reset
+          </button>
+          <button onClick={handleExport}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold"
+            style={{ background:T.green, color:'#fff', border:'none', cursor:'pointer' }}>
+            <Download className="h-4 w-4" /> Export
           </button>
         </div>
       </div>
 
-      {/* Password Reset Section */}
-      <div className="card bg-white border border-blue-100 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Reset User Password</h2>
-            <p className="mt-1 text-sm text-gray-600">
-              Search for a user by name to load their account details from Firebase and set a new password.
-            </p>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        {[
+          { label:'Total',       value:stats.total,       color:T.accent  },
+          { label:'Active',      value:stats.active,      color:T.green   },
+          { label:'Inactive',    value:stats.inactive,    color:T.red     },
+          { label:'Admin',       value:stats.admin,       color:T.red     },
+          { label:'Task Force',  value:stats.taskForce,   color:T.accent  },
+          { label:'Commissioner',value:stats.commissioner,color:T.purple  },
+          { label:'QC',          value:stats.qc,          color:T.green   },
+        ].map((s,i) => (
+          <div key={s.label} className="rounded-xl p-3"
+            style={{ background:T.card, border:`1px solid ${T.cardBorder}`, animation:`slideUp 0.4s ease ${i*40}ms both` }}>
+            <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color:T.textSecondary }}>{s.label}</p>
+            <p className="text-[20px] font-bold leading-none" style={{ color:s.color, fontFamily:"'JetBrains Mono',monospace" }}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter Bar */}
+      <div className="rounded-2xl overflow-hidden" style={{ background:T.card, border:`1px solid ${T.cardBorder}` }}>
+        <div className="flex flex-wrap gap-2 items-center px-4 py-3">
+          {/* Search */}
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color:T.textMuted }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, email, phone, org…"
+              className="w-full pl-8 pr-8 py-2 rounded-xl text-sm"
+              style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textPrimary, outline:'none' }} />
+            {search && <button onClick={() => setSearch('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:T.textMuted }}><X className="h-3.5 w-3.5" /></button>}
+          </div>
+          {/* Role */}
+          <select value={roleF} onChange={e => setRoleF(e.target.value)} style={{ ...selectSt, width:'auto', padding:'7px 10px' }}>
+            <option value="all">All Roles</option>
+            {Object.entries(ROLE_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          {/* Status */}
+          <select value={statusF} onChange={e => setStatusF(e.target.value)} style={{ ...selectSt, width:'auto', padding:'7px 10px' }}>
+            <option value="all">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          {/* Sort */}
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ ...selectSt, width:'auto', padding:'7px 10px' }}>
+            <option value="createdAt">Join Date</option>
+            <option value="name">Name</option>
+            <option value="email">Email</option>
+            <option value="role">Role</option>
+            <option value="organization">Org</option>
+          </select>
+          <button onClick={() => setSortDir(d => d==='asc'?'desc':'asc')}
+            className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold"
+            style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textSecondary, cursor:'pointer' }}>
+            {sortDir==='asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {sortDir==='asc'?'Asc':'Desc'}
+          </button>
+          <button onClick={() => setShowFilters(v => !v)}
+            className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold"
+            style={{ background:showFilters?T.accentDim:T.surface, border:`1px solid ${showFilters?T.accentBorder:T.cardBorder}`, color:showFilters?T.accent:T.textSecondary, cursor:'pointer' }}>
+            <Filter className="h-3.5 w-3.5" /> More
+            {activeFilters > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black" style={{ background:T.accent, color:'#000' }}>{activeFilters}</span>}
+          </button>
+          {activeFilters > 0 && (
+            <button onClick={() => { setSearch(''); setRoleF('all'); setStatusF('all'); setOrgF('all'); setDeptF('all'); setSortBy('createdAt'); setSortDir('desc') }}
+              style={{ background:'none', border:'none', cursor:'pointer', color:T.red, fontSize:12, fontWeight:700 }}>Clear all</button>
+          )}
+        </div>
+        {showFilters && (
+          <div className="flex flex-wrap gap-3 px-4 pb-3 pt-0" style={{ borderTop:`1px solid ${T.gridLine}` }}>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold uppercase tracking-wider" style={{ color:T.textMuted }}>Org</label>
+              <select value={orgF} onChange={e => setOrgF(e.target.value)} style={{ ...selectSt, width:'auto', padding:'6px 10px' }}>
+                <option value="all">All</option>
+                {uniqueOrgs.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold uppercase tracking-wider" style={{ color:T.textMuted }}>Dept</label>
+              <select value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...selectSt, width:'auto', padding:'6px 10px' }}>
+                <option value="all">All</option>
+                {uniqueDepts.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            {/* Active filter chips */}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {search && <Chip label={`"${search}"`} onRemove={() => setSearch('')} T={T} />}
+              {roleF!=='all' && <Chip label={ROLE_LABELS[roleF]||roleF} onRemove={() => setRoleF('all')} T={T} />}
+              {statusF!=='all' && <Chip label={statusF} onRemove={() => setStatusF('all')} T={T} />}
+              {orgF!=='all' && <Chip label={`Org: ${orgF}`} onRemove={() => setOrgF('all')} T={T} />}
+              {deptF!=='all' && <Chip label={`Dept: ${deptF}`} onRemove={() => setDeptF('all')} T={T} />}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Table */}
+      <div className="rounded-2xl overflow-hidden" style={{ background:T.card, border:`1px solid ${T.cardBorder}` }}>
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom:`1px solid ${T.cardBorder}` }}>
+          <p className="text-sm font-semibold" style={{ color:T.textPrimary }}>Users ({filtered.length})</p>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center py-16 gap-2">
+            <Users className="h-10 w-10 opacity-20" style={{ color:T.accent }} />
+            <p className="text-sm" style={{ color:T.textMuted }}>No users found matching your criteria.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize:12 }}>
+              <thead>
+                <tr style={{ background:T.surface, borderBottom:`1px solid ${T.cardBorder}` }}>
+                  {['#','User','Contact','Role','Org / Dept','Status','Joined','Actions'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-semibold uppercase tracking-wider whitespace-nowrap" style={{ fontSize:10, color:T.accent }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((u, i) => {
+                  const rc = ROLE_COLOR(u.role, T)
+                  return (
+                    <tr key={u.id} style={{ borderBottom:`1px solid ${T.gridLine}` }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = T.surface}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                      <td className="px-4 py-3" style={{ color:T.textMuted }}>{i+1}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar user={u} size={32} T={T} />
+                          <div>
+                            <p className="font-semibold" style={{ color:T.textPrimary }}>{u.name || '—'}</p>
+                            <p className="text-[10px] font-mono" style={{ color:T.textMuted }}>{u.id.slice(-8)}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p style={{ color:T.textSecondary }}>{u.email || '—'}</p>
+                        <p className="text-[11px]" style={{ color:T.textMuted }}>{u.phone || '—'}</p>
+                      </td>
+                      <td className="px-4 py-3"><SBadge label={ROLE_LABELS[u.role]||u.role} color={rc} T={T} /></td>
+                      <td className="px-4 py-3">
+                        <p style={{ color:T.textPrimary }}>{u.organization || '—'}</p>
+                        <p className="text-[10px]" style={{ color:T.textMuted }}>{u.department || '—'}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <SBadge label={u.isActive ? 'Active' : 'Inactive'} color={u.isActive ? T.green : T.red} T={T} />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap" style={{ color:T.textSecondary }}>{fmtDate(u.createdAt)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => handleViewUser(u)} className="p-1.5 rounded-lg"
+                            style={{ background:T.accentDim, color:T.accent, border:'none', cursor:'pointer' }} title="View">
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => openEditUser(u)} className="p-1.5 rounded-lg"
+                            style={{ background:`${T.amber}15`, color:T.amber, border:'none', cursor:'pointer' }} title="Edit">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteUser(u)} className="p-1.5 rounded-lg"
+                            style={{ background:`${T.red}15`, color:T.red, border:'none', cursor:'pointer' }} title="Delete">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── View User Modal ── */}
+      {viewUser && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+          style={{ background:'rgba(0,0,0,0.65)', backdropFilter:'blur(6px)' }}
+          onClick={() => setViewUser(null)}>
+          <div className="w-full max-w-4xl my-8 rounded-2xl shadow-2xl overflow-hidden"
+            style={{ background:T.card, border:`1px solid ${T.cardBorder}` }}
+            onClick={e => e.stopPropagation()}>
+            {/* Modal header */}
+            <div className="flex items-center gap-4 px-6 py-4" style={{ borderBottom:`1px solid ${T.cardBorder}`, background:`${ROLE_COLOR(viewUser.role,T)}08` }}>
+              <Avatar user={viewUser} size={52} T={T} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold truncate" style={{ color:T.textPrimary }}>{viewUser.name}</h2>
+                  <SBadge label={ROLE_LABELS[viewUser.role]||viewUser.role} color={ROLE_COLOR(viewUser.role,T)} T={T} />
+                  <SBadge label={viewUser.isActive?'Active':'Inactive'} color={viewUser.isActive?T.green:T.red} T={T} />
+                </div>
+                <p className="text-xs mt-0.5" style={{ color:T.textMuted }}>{viewUser.email}{viewUser.phone?` · ${viewUser.phone}`:''}</p>
+              </div>
+              <button onClick={() => setViewUser(null)} className="flex items-center justify-center w-8 h-8 rounded-xl"
+                style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textSecondary, cursor:'pointer' }}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Left: User info */}
+              <div className="space-y-4">
+                {/* Profile photo */}
+                {((viewUser as any).profileImageUrl || (viewUser as any).profile?.photoUrl || (viewUser as any).photoUrl) && (
+                  <div className="rounded-xl overflow-hidden" style={{ border:`1px solid ${T.cardBorder}` }}>
+                    <img src={(viewUser as any).profileImageUrl || (viewUser as any).profile?.photoUrl || (viewUser as any).photoUrl}
+                      alt={viewUser.name} className="w-full h-40 object-cover"
+                      onError={e => (e.currentTarget.parentElement!.style.display = 'none')} />
+                  </div>
+                )}
+                <div className="rounded-xl p-4 space-y-3" style={{ background:T.surface, border:`1px solid ${T.cardBorder}` }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color:T.textMuted }}>User Information</p>
+                  {[
+                    { icon:UserIcon, label:'Name',       value:viewUser.name },
+                    { icon:Mail,     label:'Email',      value:viewUser.email },
+                    { icon:Phone,    label:'Phone',      value:viewUser.phone||'Not provided' },
+                    { icon:Building, label:'Org',        value:viewUser.organization||'—' },
+                    { icon:Building, label:'Department', value:viewUser.department||'—' },
+                    { icon:MapPin,   label:'Zone',       value:(viewUser as any).zoneNumber||'—' },
+                    { icon:Calendar, label:'Joined',     value:fmtDate(viewUser.createdAt) },
+                    { icon:CheckCircle, label:'Approved By', value:(viewUser as any).approvedBy||'—' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-start gap-2">
+                      <row.icon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color:T.textMuted }} />
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color:T.textMuted }}>{row.label}</p>
+                        <p className="text-sm" style={{ color:T.textPrimary }}>{row.value}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {(viewUser as any).profile?.designation && (
+                    <div className="flex items-start gap-2">
+                      <Shield className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color:T.textMuted }} />
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color:T.textMuted }}>Designation</p>
+                        <p className="text-sm" style={{ color:T.textPrimary }}>{(viewUser as any).profile.designation}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* FP Summary */}
+                <div className="rounded-xl p-4" style={{ background:T.accentDim, border:`1px solid ${T.accentBorder}` }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color:T.accent }}>Feeder Points Summary</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label:'Total',       value:viewFPs.length,                                        color:T.accent },
+                      { label:'Active',      value:viewFPs.filter(f=>f.status==='active').length,         color:T.green  },
+                      { label:'Maintenance', value:viewFPs.filter(f=>f.status==='maintenance').length,    color:T.amber  },
+                      { label:'Inactive',    value:viewFPs.filter(f=>f.status==='inactive').length,       color:T.red    },
+                    ].map(s => (
+                      <div key={s.label} className="text-center rounded-lg p-2" style={{ background:T.card }}>
+                        <p className="text-lg font-bold" style={{ color:s.color, fontFamily:"'JetBrains Mono',monospace" }}>{viewLoading?'…':s.value}</p>
+                        <p className="text-[9px] font-semibold uppercase" style={{ color:T.textMuted }}>{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Tabs */}
+              <div className="lg:col-span-2">
+                <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background:T.surface }}>
+                  {[{id:'reports',label:`Reports (${viewReports.length})`},{id:'fps',label:`Feeder Points (${viewFPs.length})`}].map(t => (
+                    <button key={t.id} onClick={() => setViewTab(t.id as any)}
+                      className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                      style={{ background:viewTab===t.id?T.card:'transparent', color:viewTab===t.id?T.textPrimary:T.textSecondary, border:`1px solid ${viewTab===t.id?T.cardBorder:'transparent'}`, cursor:'pointer' }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="overflow-y-auto" style={{ maxHeight: 480 }}>
+                  {viewLoading ? (
+                    <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-t-transparent" style={{ borderColor:`${T.accent}30`, borderTopColor:T.accent }}/></div>
+                  ) : viewTab === 'reports' ? (
+                    viewReports.length === 0 ? (
+                      <div className="flex flex-col items-center py-12 gap-2">
+                        <FileText className="h-10 w-10 opacity-20" style={{ color:T.textMuted }} />
+                        <p className="text-sm" style={{ color:T.textMuted }}>No reports submitted yet.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {viewReports.map((r, idx) => (
+                          <div key={r.id||idx} className="rounded-xl p-3" style={{ background:T.surface, border:`1px solid ${T.cardBorder}` }}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm truncate" style={{ color:T.textPrimary }}>{r.title||r.feederPointName||'Report'}</p>
+                                <p className="text-xs mt-0.5 line-clamp-1" style={{ color:T.textMuted }}>{r.description||'—'}</p>
+                                <div className="flex gap-3 mt-1.5 text-[10px]" style={{ color:T.textMuted }}>
+                                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3"/>{fmtDate(r.createdAt)}</span>
+                                  {r.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3"/>{r.location}</span>}
+                                </div>
+                              </div>
+                              <SBadge label={r.status||'pending'} color={r.status==='resolved'?T.green:r.status==='in_progress'?T.amber:T.red} T={T} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    viewFPs.length === 0 ? (
+                      <div className="flex flex-col items-center py-12 gap-2">
+                        <TrendingUp className="h-10 w-10 opacity-20" style={{ color:T.textMuted }} />
+                        <p className="text-sm" style={{ color:T.textMuted }}>No feeder points assigned.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {viewFPs.map((fp, idx) => (
+                          <div key={fp.id||idx} className="rounded-xl p-3" style={{ background:T.surface, border:`1px solid ${T.cardBorder}` }}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-semibold text-sm" style={{ color:T.textPrimary }}>{fp.name||`FP ${idx+1}`}</p>
+                                  <SBadge label={fp.priority||'normal'} color={fp.priority==='high'?T.red:fp.priority==='medium'?T.amber:T.textMuted} T={T} />
+                                </div>
+                                {(fp.location?.address||fp.location) && (
+                                  <p className="text-xs flex items-center gap-1 mt-1" style={{ color:T.textMuted }}>
+                                    <MapPin className="h-3 w-3" />{fp.location?.address||fp.location}
+                                  </p>
+                                )}
+                                <div className="flex gap-3 mt-1.5 text-[10px]" style={{ color:T.textMuted }}>
+                                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3"/>Assigned: {fmtDate(fp.assignedAt)}</span>
+                                  {fp.lastInspection && <span className="flex items-center gap-1"><CheckCircle className="h-3 w-3"/>Last: {fmtDate(fp.lastInspection)}</span>}
+                                </div>
+                              </div>
+                              <SBadge label={fp.status||'unknown'} color={fp.status==='active'?T.green:fp.status==='maintenance'?T.amber:T.textMuted} T={T} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="mt-4 space-y-4">
-          <div className="md:flex md:items-end md:space-x-4">
-            <div className="md:flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">User Name</label>
-              <input
-                type="text"
-                value={passwordSearchName}
-                onChange={(e) => setPasswordSearchName(e.target.value)}
-                placeholder="Enter the user's full name as stored in Firebase"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+      {/* ── Edit User Drawer (right side) ── */}
+      {editUser && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-40" style={{ background:'rgba(0,0,0,0.4)', backdropFilter:'blur(2px)' }}
+            onClick={() => setEditUser(null)} />
+          {/* Drawer */}
+          <div className="fixed right-0 top-0 bottom-0 z-50 flex flex-col shadow-2xl"
+            style={{ width:'min(420px, 100vw)', background:T.card, borderLeft:`1px solid ${T.cardBorder}`, animation:'slideInRight 0.25s ease' }}>
+            {/* Drawer Header */}
+            <div className="flex items-center gap-3 px-5 py-4 flex-shrink-0" style={{ borderBottom:`1px solid ${T.cardBorder}`, background:`${ROLE_COLOR(editUser.role,T)}08` }}>
+              <Avatar user={editUser} size={44} T={T} />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold truncate" style={{ color:T.textPrimary }}>{editUser.name}</h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <SBadge label={ROLE_LABELS[editUser.role]||editUser.role} color={ROLE_COLOR(editUser.role,T)} T={T} />
+                  <SBadge label={editUser.isActive?'Active':'Inactive'} color={editUser.isActive?T.green:T.red} T={T} />
+                </div>
+              </div>
+              <button onClick={() => setEditUser(null)} className="flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0"
+                style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textSecondary, cursor:'pointer' }}>
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="mt-3 md:mt-0">
-              <button
-                onClick={handlePasswordUserLookup}
-                disabled={passwordFetchLoading}
-                className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                {passwordFetchLoading ? 'Fetching...' : 'Fetch User'}
+
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+              {/* Profile image */}
+              {(editUser as any).profileImageUrl && (
+                <div className="rounded-2xl overflow-hidden" style={{ border:`1px solid ${T.cardBorder}` }}>
+                  <img src={(editUser as any).profileImageUrl} alt={editUser.name}
+                    className="w-full object-cover" style={{ maxHeight:180 }}
+                    onError={e => (e.currentTarget.parentElement!.style.display='none')} />
+                </div>
+              )}
+
+              {/* ── Section: Basic Info ── */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color:T.textMuted }}>Basic Info</p>
+                <div className="space-y-3">
+                  {[
+                    { label:'Name',         key:'name',         type:'text'  },
+                    { label:'Email',        key:'email',        type:'email' },
+                    { label:'Phone',        key:'phone',        type:'tel'   },
+                    { label:'Organization', key:'organization', type:'text'  },
+                    { label:'Department',   key:'department',   type:'text'  },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color:T.textMuted }}>{f.label}</label>
+                      <input type={f.type} value={(editUser as any)[f.key]||''} onChange={e => setEditUser({ ...editUser, [f.key]:e.target.value })} style={inputSt} />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color:T.textMuted }}>Role</label>
+                    <select value={editUser.role} onChange={e => setEditUser({ ...editUser, role:e.target.value })} style={selectSt}>
+                      {Object.entries(ROLE_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Section: Status ── */}
+              <div className="rounded-xl px-4 py-3 flex items-center justify-between"
+                style={{ background:editUser.isActive?`${T.green}10`:`${T.red}10`, border:`1px solid ${editUser.isActive?T.green:T.red}25` }}>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color:editUser.isActive?T.green:T.red }}>
+                    {editUser.isActive ? 'Active Account' : 'Inactive Account'}
+                  </p>
+                  <p className="text-[10px] mt-0.5" style={{ color:T.textMuted }}>User {editUser.isActive?'can':'cannot'} log in and use the app</p>
+                </div>
+                <button onClick={() => setEditUser({...editUser, isActive:!editUser.isActive})}
+                  className="relative flex-shrink-0" style={{ width:44, height:24, borderRadius:12, background:editUser.isActive?T.green:T.cardBorder, border:'none', cursor:'pointer', transition:'background 0.2s' }}>
+                  <div style={{ position:'absolute', top:3, left:editUser.isActive?23:3, width:18, height:18, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,0.25)', transition:'left 0.2s' }} />
+                </button>
+              </div>
+
+              {/* ── Section: Change Password ── */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-1.5" style={{ color:T.textMuted }}>
+                  <Key className="h-3 w-3" /> Change Password
+                </p>
+                <div className="rounded-xl p-4 space-y-3" style={{ background:T.surface, border:`1px solid ${T.cardBorder}` }}>
+                  <p className="text-xs" style={{ color:T.textMuted }}>Set a new password for this user. Leave blank to keep the current password.</p>
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color:T.textMuted }}>New Password</label>
+                    <input type="password" value={editPw} onChange={e => setEditPw(e.target.value)}
+                      placeholder="Enter new password…" style={inputSt} />
+                  </div>
+                  {editPw.trim() && (
+                    <button onClick={handleEditPwUpdate} disabled={editPwUpdating}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
+                      style={{ background:T.purple, color:'#fff', border:'none', cursor:'pointer' }}>
+                      {editPwUpdating
+                        ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor:'rgba(255,255,255,0.3)', borderTopColor:'#fff' }} />
+                        : <Key className="h-4 w-4" />}
+                      {editPwUpdating ? 'Updating…' : 'Update Password'}
+                    </button>
+                  )}
+                  {editPwStatus && (
+                    <div className="rounded-xl px-3 py-2 text-xs font-semibold"
+                      style={{ background:editPwStatus.type==='success'?`${T.green}10`:`${T.red}10`, border:`1px solid ${editPwStatus.type==='success'?T.green:T.red}30`, color:editPwStatus.type==='success'?T.green:T.red }}>
+                      {editPwStatus.msg}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-2 px-5 py-4 flex-shrink-0" style={{ borderTop:`1px solid ${T.cardBorder}` }}>
+              <button onClick={() => setEditUser(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textSecondary, cursor:'pointer' }}>Cancel</button>
+              <button onClick={handleSaveUser} disabled={editSaving} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
+                style={{ background:T.accent, color:'#000', border:'none', cursor:'pointer', fontWeight:700 }}>
+                {editSaving && <div className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor:'rgba(0,0,0,0.3)', borderTopColor:'#000' }} />}
+                Save Changes
               </button>
             </div>
           </div>
+          <style>{'@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}'}</style>
+        </>
+      )}
 
-          {passwordSearchResult && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              <p className="font-medium">{passwordSearchResult.name}</p>
-              <p>{passwordSearchResult.email || 'No email on record'}</p>
-              <p className="text-xs mt-1">ID: {passwordSearchResult.id}</p>
-            </div>
-          )}
-
-          {passwordSearchResult && (
-            <div className="md:flex md:items-end md:space-x-4">
-              <div className="md:flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                <input
-                  type="password"
-                  value={passwordResetInput}
-                  onChange={(e) => setPasswordResetInput(e.target.value)}
-                  placeholder="Enter new password"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+      {/* ── Password Reset Modal ── */}
+      {showPwModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background:'rgba(0,0,0,0.65)', backdropFilter:'blur(6px)' }}
+          onClick={() => setShowPwModal(false)}>
+          <div className="w-full max-w-md rounded-2xl shadow-2xl"
+            style={{ background:T.card, border:`1px solid ${T.cardBorder}` }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:`1px solid ${T.cardBorder}` }}>
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background:`${T.purple}15` }}>
+                  <Key className="h-4 w-4" style={{ color:T.purple }} />
+                </div>
+                <h3 className="text-base font-bold" style={{ color:T.textPrimary }}>Reset User Password</h3>
               </div>
-              <div className="mt-3 md:mt-0">
-                <button
-                  onClick={handlePasswordUpdate}
-                  disabled={passwordUpdateLoading}
-                  className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-emerald-600 text-sm font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50"
-                >
-                  {passwordUpdateLoading ? 'Updating...' : 'Update Password'}
+              <button onClick={() => setShowPwModal(false)} className="flex items-center justify-center w-7 h-7 rounded-lg"
+                style={{ background:T.surface, border:`1px solid ${T.cardBorder}`, color:T.textSecondary, cursor:'pointer' }}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs" style={{ color:T.textMuted }}>Search for a user by name to load their account, then set a new password.</p>
+              <div className="flex gap-2">
+                <input value={pwSearch} onChange={e => setPwSearch(e.target.value)} placeholder="Enter full name…"
+                  onKeyDown={e => e.key==='Enter' && handlePwLookup()}
+                  style={{ ...inputSt, flex:1 }} />
+                <button onClick={handlePwLookup} disabled={pwSearching}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 whitespace-nowrap"
+                  style={{ background:T.accent, color:'#000', border:'none', cursor:'pointer' }}>
+                  {pwSearching ? '…' : 'Fetch'}
                 </button>
               </div>
-            </div>
-          )}
-
-          {passwordActionStatus && (
-            <div
-              className={`rounded-md px-4 py-3 text-sm border ${passwordActionStatus.type === 'success'
-                ? 'bg-green-50 text-green-800 border-green-200'
-                : 'bg-red-50 text-red-800 border-red-200'
-                }`}
-            >
-              {passwordActionStatus.message}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Enhanced Filters */}
-      <div className="card bg-gradient-to-r from-white to-blue-50/30 border-2 border-blue-100">
-        <div className="space-y-6">
-          {/* Filter Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Filter className="h-5 w-5 text-blue-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Filter Users</h3>
-              {(roleFilter !== 'all' || statusFilter !== 'all' || organizationFilter !== 'all' || departmentFilter !== 'all' || searchTerm) && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Active Filters
-                </span>
-              )}
-            </div>
-            <div className="text-sm text-gray-600">
-              {filteredUsers.length} of {users.length} users shown
-            </div>
-          </div>
-
-          {/* Primary Filters Row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
-              <input
-                type="text"
-                placeholder="Search users..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className={`pl-10 w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${searchTerm ? 'border-blue-300 bg-blue-50/50' : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            <div className="relative">
-              <select
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-                className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${roleFilter !== 'all' ? 'border-blue-300 bg-blue-50/50 text-blue-700 font-medium' : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <option value="all">All Roles</option>
-                <option value="admin">👑 Admin</option>
-                <option value="task_force_team">⚡ Task Force Team</option>
-                <option value="commissioner">🏛️ Commissioner</option>
-                <option value="pmc_member">PMC Member</option>
-              </select>
-              {roleFilter !== 'all' && (
-                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                </div>
-              )}
-            </div>
-
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${statusFilter !== 'all' ? 'border-blue-300 bg-blue-50/50 text-blue-700 font-medium' : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <option value="all">All Status</option>
-                <option value="active">✅ Active</option>
-                <option value="inactive">❌ Inactive</option>
-              </select>
-              {statusFilter !== 'all' && (
-                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                </div>
-              )}
-            </div>
-
-            <div className="relative">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-all duration-200"
-              >
-                <option value="createdAt">📅 Sort by Join Date</option>
-                <option value="name">👤 Sort by Name</option>
-                <option value="email">📧 Sort by Email</option>
-                <option value="role">🎭 Sort by Role</option>
-                <option value="organization">🏢 Sort by Organization</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Secondary Filters Row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
-              <select
-                value={organizationFilter}
-                onChange={(e) => setOrganizationFilter(e.target.value)}
-                className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${organizationFilter !== 'all' ? 'border-blue-300 bg-blue-50/50 text-blue-700 font-medium' : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <option value="all">🏢 All Organizations</option>
-                {getUniqueOrganizations().map(org => (
-                  <option key={org} value={org}>
-                    {org === 'Unassigned' ? '❓ Unassigned' : `🏢 ${org}`}
-                  </option>
-                ))}
-              </select>
-              {organizationFilter !== 'all' && (
-                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                </div>
-              )}
-            </div>
-
-            <div className="relative">
-              <select
-                value={departmentFilter}
-                onChange={(e) => setDepartmentFilter(e.target.value)}
-                className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${departmentFilter !== 'all' ? 'border-blue-300 bg-blue-50/50 text-blue-700 font-medium' : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <option value="all">🏛️ All Departments</option>
-                {getUniqueDepartments().map(dept => (
-                  <option key={dept} value={dept}>
-                    {dept === 'Unassigned' ? '❓ Unassigned' : `🏛️ ${dept}`}
-                  </option>
-                ))}
-              </select>
-              {departmentFilter !== 'all' && (
-                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              className={`btn-secondary flex items-center justify-center space-x-2 transition-all duration-200 ${sortOrder === 'desc' ? 'bg-blue-50 border-blue-200 text-blue-700' : ''
-                }`}
-            >
-              <TrendingUp className={`h-4 w-4 transform transition-transform duration-200 ${sortOrder === 'desc' ? 'rotate-180' : ''}`} />
-              <span>{sortOrder === 'asc' ? '⬆️ Ascending' : '⬇️ Descending'}</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSearchTerm('')
-                setRoleFilter('all')
-                setStatusFilter('all')
-                setOrganizationFilter('all')
-                setDepartmentFilter('all')
-                setSortBy('createdAt')
-                setSortOrder('desc')
-              }}
-              className="btn-secondary flex items-center justify-center space-x-2 hover:bg-red-50 hover:border-red-200 hover:text-red-700 transition-all duration-200"
-              disabled={!searchTerm && roleFilter === 'all' && statusFilter === 'all' && organizationFilter === 'all' && departmentFilter === 'all' && sortBy === 'createdAt' && sortOrder === 'desc'}
-            >
-              <X className="h-4 w-4" />
-              <span>🗑️ Clear All</span>
-            </button>
-          </div>
-
-          {/* Active Filters Summary */}
-          {(roleFilter !== 'all' || statusFilter !== 'all' || organizationFilter !== 'all' || departmentFilter !== 'all' || searchTerm) && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-blue-900">Active Filters:</span>
-                  <div className="flex flex-wrap gap-2">
-                    {searchTerm && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-                        Search: "{searchTerm}"
-                        <button onClick={() => setSearchTerm('')} className="ml-1 hover:text-blue-600">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {roleFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-                        Role: {roleFilter.replace('_', ' ')}
-                        <button onClick={() => setRoleFilter('all')} className="ml-1 hover:text-blue-600">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {statusFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-                        Status: {statusFilter}
-                        <button onClick={() => setStatusFilter('all')} className="ml-1 hover:text-blue-600">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {organizationFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-                        Org: {organizationFilter}
-                        <button onClick={() => setOrganizationFilter('all')} className="ml-1 hover:text-blue-600">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {departmentFilter !== 'all' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-                        Dept: {departmentFilter}
-                        <button onClick={() => setDepartmentFilter('all')} className="ml-1 hover:text-blue-600">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
+              {pwResult && (
+                <div className="rounded-xl p-3 flex items-center gap-3" style={{ background:T.accentDim, border:`1px solid ${T.accentBorder}` }}>
+                  <Avatar user={pwResult} size={36} T={T} />
+                  <div>
+                    <p className="font-bold text-sm" style={{ color:T.textPrimary }}>{pwResult.name}</p>
+                    <p className="text-xs" style={{ color:T.textMuted }}>{pwResult.email || 'No email'}</p>
                   </div>
                 </div>
-                <div className="text-sm text-blue-700 font-medium">
-                  {filteredUsers.length} result{filteredUsers.length !== 1 ? 's' : ''}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Users Table */}
-      <div className="table-container">
-        <div className="scrollable-table">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header">User</th>
-                <th className="table-header">Contact</th>
-                <th className="table-header">Role</th>
-                <th className="table-header">Organization</th>
-                <th className="table-header">Status</th>
-                <th className="table-header">Joined</th>
-                <th className="table-header">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50">
-                  <td className="table-cell">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                      <div className="text-sm text-gray-500">ID: {user.id}</div>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div>
-                      <div className="text-sm text-gray-900">{user.email}</div>
-                      <div className="text-sm text-gray-500">{user.phone}</div>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <span className={`badge ${getRoleBadge(user.role)}`}>
-                      {user.role.replace('_', ' ').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="table-cell">
-                    <div>
-                      <div className="text-sm text-gray-900">{user.organization || 'N/A'}</div>
-                      <div className="text-sm text-gray-500">{user.department || 'N/A'}</div>
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <span className={`badge ${getStatusBadge(user.isActive)}`}>
-                      {user.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="table-cell">
-                    <div className="text-sm text-gray-900">
-                      {user.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}
-                    </div>
-                  </td>
-                  <td className="table-cell">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleViewUser(user)}
-                        className="p-1 text-gray-400 hover:text-primary-600 transition-colors"
-                        title="View Details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleEditUser(user)}
-                        className="p-1 text-gray-400 hover:text-warning-600 transition-colors"
-                        title="Edit User"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteUser(user)}
-                        className="p-1 text-gray-400 hover:text-danger-600 transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {
-          filteredUsers.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-gray-500">No users found matching your criteria</div>
-            </div>
-          )
-        }
-      </div >
-
-      {/* Summary Stats */}
-      < div className="space-y-4" >
-        {/* Filtered Results Summary */}
-        < div className="bg-blue-50 border border-blue-200 rounded-lg p-4" >
-          <h3 className="text-lg font-semibold text-blue-900 mb-2">Current Filter Results</h3>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center">
-            <div>
-              <div className="text-2xl font-bold text-blue-600">{getRoleStats().total}</div>
-              <div className="text-sm text-blue-700">Total Shown</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-green-600">{getRoleStats().active}</div>
-              <div className="text-sm text-green-700">Active</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-red-600">{getRoleStats().admin}</div>
-              <div className="text-sm text-red-700">Admins</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-emerald-600">{getRoleStats().taskForce}</div>
-              <div className="text-sm text-emerald-700">Task Force</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-purple-600">{getRoleStats().commissioner}</div>
-              <div className="text-sm text-purple-700">Commissioners</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-600">{getRoleStats().inactive}</div>
-              <div className="text-sm text-gray-700">Inactive</div>
-            </div>
-          </div>
-        </div >
-
-        {/* Overall System Stats */}
-        < div className="grid grid-cols-1 md:grid-cols-4 gap-4" >
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-600">Total Users</div>
-                <div className="text-2xl font-semibold text-gray-900">{users.length}</div>
-                <div className="text-xs text-gray-500">System wide</div>
-              </div>
-              <Users className="h-8 w-8 text-blue-500" />
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-600">Active Users</div>
-                <div className="text-2xl font-semibold text-success-600">
-                  {users.filter(u => u.isActive).length}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {((users.filter(u => u.isActive).length / users.length) * 100).toFixed(1)}% of total
-                </div>
-              </div>
-              <CheckCircle className="h-8 w-8 text-green-500" />
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-600">Admin Users</div>
-                <div className="text-2xl font-semibold text-danger-600">
-                  {users.filter(u => u.role === 'admin').length}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {users.filter(u => u.role === 'admin' && u.isActive).length} active
-                </div>
-              </div>
-              <Shield className="h-8 w-8 text-red-500" />
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-600">Task Force</div>
-                <div className="text-2xl font-semibold text-primary-600">
-                  {users.filter(u => u.role === 'task_force_team').length}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {users.filter(u => u.role === 'task_force_team' && u.isActive).length} active
-                </div>
-              </div>
-              <Activity className="h-8 w-8 text-blue-500" />
-            </div>
-          </div>
-        </div >
-      </div >
-
-      {/* User Details Modal */}
-      {
-        showUserModal && selectedUser && (
-          <div className="fixed inset-0 z-50 overflow-y-auto">
-            <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-              <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowUserModal(false)} />
-
-              <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
-                <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-2xl font-bold text-gray-900 flex items-center">
-                      <Users className="h-6 w-6 mr-2 text-blue-600" />
-                      User Details: {selectedUser.name}
-                    </h3>
-                    <button
-                      onClick={() => setShowUserModal(false)}
-                      className="text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <X className="h-6 w-6" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* User Info */}
-                    <div className="lg:col-span-1">
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">User Information</h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Name</label>
-                            <p className="text-sm text-gray-900">{selectedUser.name}</p>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Email</label>
-                            <p className="text-sm text-gray-900">{selectedUser.email}</p>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Phone</label>
-                            <p className="text-sm text-gray-900">{selectedUser.phone || 'Not provided'}</p>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Role</label>
-                            <p className="text-sm text-gray-900">{selectedUser.role}</p>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Organization</label>
-                            <p className="text-sm text-gray-900">{selectedUser.organization || 'Not specified'}</p>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Status</label>
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${selectedUser.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                              }`}>
-                              {selectedUser.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium text-gray-500">Joined</label>
-                            <p className="text-sm text-gray-900">
-                              {selectedUser.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Feeder Points Summary */}
-                      <div className="bg-blue-50 rounded-lg p-4 mt-4">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                          <TrendingUp className="h-5 w-5 mr-2 text-blue-600" />
-                          Feeder Points Summary
-                        </h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-blue-600">{userFeederPoints.length}</p>
-                            <p className="text-sm text-gray-600">Total Points</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-green-600">
-                              {userFeederPoints.filter(fp => fp.status === 'active').length}
-                            </p>
-                            <p className="text-sm text-gray-600">Active Points</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-yellow-600">
-                              {userFeederPoints.filter(fp => fp.status === 'maintenance').length}
-                            </p>
-                            <p className="text-sm text-gray-600">Maintenance</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-red-600">
-                              {userFeederPoints.filter(fp => fp.status === 'inactive').length}
-                            </p>
-                            <p className="text-sm text-gray-600">Inactive</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Reports and Activities */}
-                    <div className="lg:col-span-2">
-                      <div className="bg-white border rounded-lg">
-                        <div className="border-b border-gray-200">
-                          <nav className="-mb-px flex space-x-8 px-6">
-                            <button className="border-blue-500 text-blue-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                              Reports ({userReports.length})
-                            </button>
-                            <button className="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                              Feeder Points ({userFeederPoints.length})
-                            </button>
-                          </nav>
-                        </div>
-
-                        <div className="p-6 max-h-96 overflow-y-auto">
-                          {/* Reports Section */}
-                          <div className="space-y-4">
-                            <h5 className="text-lg font-medium text-gray-900 flex items-center">
-                              <FileText className="h-5 w-5 mr-2 text-gray-600" />
-                              Submitted Reports
-                            </h5>
-
-                            {userReports.length > 0 ? (
-                              <div className="space-y-3">
-                                {userReports.map((report, index) => (
-                                  <div key={report.id || index} className="border border-gray-200 rounded-lg p-4">
-                                    <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <h6 className="font-medium text-gray-900">{report.title || 'Untitled Report'}</h6>
-                                        <p className="text-sm text-gray-600 mt-1">{report.description || 'No description'}</p>
-                                        <div className="flex items-center mt-2 space-x-4">
-                                          <span className="flex items-center text-xs text-gray-500">
-                                            <Calendar className="h-3 w-3 mr-1" />
-                                            {report.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown date'}
-                                          </span>
-                                          <span className="flex items-center text-xs text-gray-500">
-                                            <MapPin className="h-3 w-3 mr-1" />
-                                            {report.location || 'No location'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${report.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                                        report.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' :
-                                          'bg-red-100 text-red-800'
-                                        }`}>
-                                        {report.status || 'pending'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-8">
-                                <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                                <h3 className="mt-2 text-sm font-medium text-gray-900">No reports submitted</h3>
-                                <p className="mt-1 text-sm text-gray-500">This user hasn't submitted any reports yet.</p>
-                              </div>
-                            )}
-
-                            {/* Feeder Points Section */}
-                            <div className="mt-8">
-                              <h5 className="text-lg font-medium text-gray-900 flex items-center">
-                                <TrendingUp className="h-5 w-5 mr-2 text-gray-600" />
-                                Feeder Points Details
-                              </h5>
-
-                              {userFeederPoints.length > 0 ? (
-                                <div className="mt-4 space-y-3">
-                                  {userFeederPoints.map((point, index) => (
-                                    <div key={point.id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                                      <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                          <div className="flex items-center space-x-2 mb-2">
-                                            <h6 className="font-medium text-gray-900">{point.name || `Feeder Point ${index + 1}`}</h6>
-                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${point.priority === 'high' ? 'bg-red-100 text-red-800' :
-                                              point.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-gray-100 text-gray-800'
-                                              }`}>
-                                              {point.priority || 'normal'} priority
-                                            </span>
-                                          </div>
-
-                                          <div className="flex items-center text-sm text-gray-600 mb-2">
-                                            <MapPin className="h-4 w-4 mr-1" />
-                                            <span>{point.location?.address || point.location || 'No location specified'}</span>
-                                          </div>
-
-                                          {point.description && (
-                                            <p className="text-sm text-gray-600 mb-2">{point.description}</p>
-                                          )}
-
-                                          <div className="flex items-center space-x-4 text-xs text-gray-500">
-                                            <span className="flex items-center">
-                                              <Calendar className="h-3 w-3 mr-1" />
-                                              Assigned: {point.assignedAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-                                            </span>
-                                            {point.assignedBy && (
-                                              <span>By: {point.assignedBy}</span>
-                                            )}
-                                            {point.lastInspection && (
-                                              <span className="flex items-center">
-                                                <CheckCircle className="h-3 w-3 mr-1" />
-                                                Last: {point.lastInspection.toDate?.()?.toLocaleDateString() || 'Never'}
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          {point.nextInspectionDue && (
-                                            <div className="mt-2">
-                                              <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${new Date(point.nextInspectionDue.toDate?.() || point.nextInspectionDue) < new Date()
-                                                ? 'bg-red-100 text-red-800'
-                                                : 'bg-blue-100 text-blue-800'
-                                                }`}>
-                                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                                Next inspection: {point.nextInspectionDue.toDate?.()?.toLocaleDateString() || 'Not scheduled'}
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        <div className="flex flex-col items-end space-y-2">
-                                          <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${point.status === 'active' ? 'bg-green-100 text-green-800' :
-                                            point.status === 'maintenance' ? 'bg-yellow-100 text-yellow-800' :
-                                              point.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }`}>
-                                            {point.status || 'unknown'}
-                                          </span>
-
-                                          {point.assignmentType && (
-                                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${point.assignmentType === 'individual' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-                                              }`}>
-                                              {point.assignmentType === 'individual' ? 'Individual' : `Team: ${point.teamName || 'Unknown'}`}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="text-center py-8">
-                                  <TrendingUp className="mx-auto h-12 w-12 text-gray-400" />
-                                  <h3 className="mt-2 text-sm font-medium text-gray-900">No feeder points assigned</h3>
-                                  <p className="mt-1 text-sm text-gray-500">This user hasn't been assigned any feeder points yet.</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                  <button
-                    onClick={() => setShowUserModal(false)}
-                    className="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Close
+              )}
+              {pwResult && (
+                <div className="flex gap-2">
+                  <input type="password" value={pwNew} onChange={e => setPwNew(e.target.value)}
+                    placeholder="New password…" style={{ ...inputSt, flex:1 }} />
+                  <button onClick={handlePwUpdate} disabled={pwUpdating}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 whitespace-nowrap"
+                    style={{ background:T.green, color:'#fff', border:'none', cursor:'pointer' }}>
+                    {pwUpdating ? '…' : 'Update'}
                   </button>
                 </div>
-              </div>
+              )}
+              {pwStatus && (
+                <div className="rounded-xl px-3 py-2.5 text-sm" style={{ background: pwStatus.type==='success'?`${T.green}10`:`${T.red}10`, border:`1px solid ${pwStatus.type==='success'?T.green:T.red}30`, color: pwStatus.type==='success'?T.green:T.red }}>
+                  {pwStatus.msg}
+                </div>
+              )}
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
 
-      {/* Edit User Modal */}
-      {
-        showEditModal && editingUser && (
-          <div className="fixed inset-0 z-50 overflow-y-auto">
-            <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-              <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowEditModal(false)} />
+      <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+    </div>
+  )
+}
 
-              <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-                <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-gray-900 flex items-center">
-                      <Edit className="h-5 w-5 mr-2 text-blue-600" />
-                      Edit User: {editingUser.name}
-                    </h3>
-                    <button
-                      onClick={() => setShowEditModal(false)}
-                      className="text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                      <input
-                        type="text"
-                        value={editingUser.name}
-                        onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={editingUser.email}
-                        onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input
-                        type="tel"
-                        value={editingUser.phone || ''}
-                        onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                      <select
-                        value={editingUser.role}
-                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="task_force_team">Task Force Team</option>
-                        <option value="commissioner">Commissioner</option>
-                        <option value="pmc_member">PMC Member</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
-                      <input
-                        type="text"
-                        value={editingUser.organization || ''}
-                        onChange={(e) => setEditingUser({ ...editingUser, organization: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={editingUser.isActive}
-                          onChange={(e) => setEditingUser({ ...editingUser, isActive: e.target.checked })}
-                          className="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Active User</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                  <button
-                    onClick={handleSaveUser}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Save Changes
-                  </button>
-                  <button
-                    onClick={() => setShowEditModal(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      }
-    </div >
+// ─── Filter chip ──────────────────────────────────────────────────────────────
+function Chip({ label, onRemove, T }: { label: string; onRemove: () => void; T: any }) {
+  return (
+    <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold"
+      style={{ background:T.accentDim, border:`1px solid ${T.accentBorder}`, color:T.accent }}>
+      {label}
+      <button onClick={onRemove} style={{ background:'none', border:'none', cursor:'pointer', color:T.accent, lineHeight:1, padding:0 }}>×</button>
+    </span>
   )
 }
