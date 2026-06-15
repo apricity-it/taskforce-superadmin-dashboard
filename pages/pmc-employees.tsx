@@ -10,9 +10,7 @@ import {
   ShieldCheck,
   RefreshCcw
 } from 'lucide-react'
-import { DataService, User } from '@/lib/dataService'
-
-const ZONES = ['1', '2', '3', '4', '5']
+import { DataService, User, Zone, Ward, Kothi } from '@/lib/dataService'
 
 interface FormState {
   name: string
@@ -20,7 +18,12 @@ interface FormState {
   email: string
   phone: string
   password: string
-  zoneNumber: string
+  zoneId: string
+  zoneName: string
+  wardId: string
+  wardName: string
+  kothiId: string
+  kothiName: string
 }
 
 export default function PmcEmployeesPage() {
@@ -30,20 +33,50 @@ export default function PmcEmployeesPage() {
     email: '',
     phone: '',
     password: '',
-    zoneNumber: ZONES[0]
+    zoneId: '',
+    zoneName: '',
+    wardId: '',
+    wardName: '',
+    kothiId: '',
+    kothiName: ''
   })
   const [pmcUsers, setPmcUsers] = useState<User[]>([])
+  const [zones, setZones] = useState<Zone[]>([])
+  const [wards, setWards] = useState<Ward[]>([])
+  const [kothis, setKothis] = useState<Kothi[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
-    loadUsers()
+    loadData()
   }, [])
 
-  const loadUsers = async () => {
+  const loadData = async () => {
     setLoading(true)
+    try {
+      const [allUsers, allZones, allWards, allKothis] = await Promise.all([
+        DataService.getAllUsers(),
+        DataService.getZones(),
+        DataService.getWards(),
+        DataService.getKothis()
+      ])
+      const pmc = allUsers.filter(user => user.role === 'pmc_member' || user.role === 'pmc_viewer')
+      setPmcUsers(pmc)
+      setZones(allZones)
+      setWards(allWards)
+      setKothis(allKothis)
+    } catch (error) {
+      console.error('Failed to load data', error)
+      setStatus({ type: 'error', message: 'Could not load data. Please try again.' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadUsers = async () => {
     try {
       const allUsers = await DataService.getAllUsers()
       const pmc = allUsers.filter(user => user.role === 'pmc_member' || user.role === 'pmc_viewer')
@@ -51,8 +84,6 @@ export default function PmcEmployeesPage() {
     } catch (error) {
       console.error('Failed to load PMC employees', error)
       setStatus({ type: 'error', message: 'Could not load PMC employees. Please try again.' })
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -60,40 +91,111 @@ export default function PmcEmployeesPage() {
     setForm(prev => ({ ...prev, [key]: value }))
   }
 
-  const handleCreate = async () => {
+  const handleSubmit = async () => {
     setStatus(null)
-    if (!form.name.trim() || !form.employeeCode.trim() || !form.email.trim() || !form.phone.trim() || !form.password.trim()) {
-      setStatus({ type: 'error', message: 'All fields are required.' })
+    if (!form.name.trim() || !form.employeeCode.trim() || !form.email.trim() || !form.phone.trim()) {
+      setStatus({ type: 'error', message: 'All fields except password are required.' })
+      return
+    }
+    if (!editingUserId && !form.password.trim()) {
+      setStatus({ type: 'error', message: 'Password is required for new users.' })
       return
     }
 
     setSaving(true)
     try {
-      await DataService.createPmcEmployee({
-        name: form.name,
-        employeeCode: form.employeeCode,
-        email: form.email,
-        phone: form.phone,
-        password: form.password,
-        zoneNumber: form.zoneNumber
-      })
+      if (editingUserId) {
+        await DataService.updatePmcEmployee(editingUserId, {
+          name: form.name,
+          employeeCode: form.employeeCode,
+          email: form.email,
+          phone: form.phone,
+          password: form.password || undefined,
+          zoneNumber: form.zoneName,
+          zoneId: form.zoneId,
+          zoneName: form.zoneName,
+          wardId: form.wardId,
+          wardName: form.wardName,
+          kothiId: form.kothiId,
+          kothiName: form.kothiName
+        })
+        setStatus({ type: 'success', message: 'PMC employee login updated successfully.' })
+      } else {
+        await DataService.createPmcEmployee({
+          name: form.name,
+          employeeCode: form.employeeCode,
+          email: form.email,
+          phone: form.phone,
+          password: form.password,
+          zoneNumber: form.zoneName,
+          zoneId: form.zoneId,
+          zoneName: form.zoneName,
+          wardId: form.wardId,
+          wardName: form.wardName,
+          kothiId: form.kothiId,
+          kothiName: form.kothiName
+        })
+        setStatus({ type: 'success', message: 'PMC employee login created successfully.' })
+      }
 
-      setStatus({ type: 'success', message: 'PMC employee login created successfully.' })
+      setEditingUserId(null)
       setForm({
         name: '',
         employeeCode: '',
         email: '',
         phone: '',
         password: '',
-        zoneNumber: ZONES[0]
+        zoneId: '',
+        zoneName: '',
+        wardId: '',
+        wardName: '',
+        kothiId: '',
+        kothiName: ''
       })
       await loadUsers()
-    } catch (error) {
-      console.error('Failed to create PMC employee', error)
-      setStatus({ type: 'error', message: 'Could not create PMC employee. Please try again.' })
+    } catch (error: any) {
+      console.error('Failed to save PMC employee', error)
+      setStatus({ type: 'error', message: `Could not save PMC employee: ${error?.message || 'Unknown error'}` })
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleEdit = (user: User) => {
+    setEditingUserId(user.id)
+    setForm({
+      name: user.name || '',
+      employeeCode: user.employeeCode || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      password: '', // Don't populate password
+      zoneId: user.zoneId || '',
+      zoneName: user.zoneName || '',
+      wardId: user.wardId || '',
+      wardName: user.wardName || '',
+      kothiId: user.kothiId || '',
+      kothiName: user.kothiName || ''
+    })
+    setStatus(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const cancelEdit = () => {
+    setEditingUserId(null)
+    setForm({
+      name: '',
+      employeeCode: '',
+      email: '',
+      phone: '',
+      password: '',
+      zoneId: '',
+      zoneName: '',
+      wardId: '',
+      wardName: '',
+      kothiId: '',
+      kothiName: ''
+    })
+    setStatus(null)
   }
 
   const handleDelete = async (userId: string) => {
@@ -141,7 +243,7 @@ export default function PmcEmployeesPage() {
                   <UserPlus className="h-5 w-5 text-primary-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Create Login</p>
+                  <p className="text-sm text-gray-500">{editingUserId ? 'Edit Login' : 'Create Login'}</p>
                   <p className="text-base font-semibold text-gray-900">PMC Employee</p>
                 </div>
               </div>
@@ -208,22 +310,84 @@ export default function PmcEmployeesPage() {
                     value={form.password}
                     onChange={(e) => updateField('password', e.target.value)}
                     className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    placeholder="Set login password"
+                    placeholder={editingUserId ? "Leave blank to keep unchanged" : "Set login password"}
                   />
                 </label>
 
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    <MapPin className="h-4 w-4 text-primary-500" /> Zone (1-5)
+                    <MapPin className="h-4 w-4 text-primary-500" /> Zone
                   </span>
                   <select
-                    value={form.zoneNumber}
-                    onChange={(e) => updateField('zoneNumber', e.target.value)}
+                    value={form.zoneId}
+                    onChange={(e) => {
+                      const selectedZone = zones.find(z => z.id === e.target.value)
+                      setForm(prev => ({ 
+                        ...prev, 
+                        zoneId: e.target.value, 
+                        zoneName: selectedZone?.name || '',
+                        wardId: '', wardName: '', kothiId: '', kothiName: '' 
+                      }))
+                    }}
                     className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
                   >
-                    {ZONES.map(zone => (
-                      <option key={zone} value={zone}>
-                        Zone {zone}
+                    <option value="">Select Zone</option>
+                    {zones.map(zone => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                    <MapPin className="h-4 w-4 text-primary-500" /> Ward
+                  </span>
+                  <select
+                    value={form.wardId}
+                    onChange={(e) => {
+                      const selectedWard = wards.find(w => w.id === e.target.value)
+                      setForm(prev => ({ 
+                        ...prev, 
+                        wardId: e.target.value, 
+                        wardName: selectedWard?.name || '',
+                        kothiId: '', kothiName: '' 
+                      }))
+                    }}
+                    disabled={!form.zoneId}
+                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:bg-gray-100"
+                  >
+                    <option value="">Select Ward</option>
+                    {wards.filter(w => w.zoneId === form.zoneId).map(ward => (
+                      <option key={ward.id} value={ward.id}>
+                        {ward.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                    <MapPin className="h-4 w-4 text-primary-500" /> Kothi
+                  </span>
+                  <select
+                    value={form.kothiId}
+                    onChange={(e) => {
+                      const selectedKothi = kothis.find(k => k.id === e.target.value)
+                      setForm(prev => ({ 
+                        ...prev, 
+                        kothiId: e.target.value, 
+                        kothiName: selectedKothi?.name || '' 
+                      }))
+                    }}
+                    disabled={!form.wardId}
+                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:bg-gray-100"
+                  >
+                    <option value="">Select Kothi</option>
+                    {kothis.filter(k => k.wardId === form.wardId).map(kothi => (
+                      <option key={kothi.id} value={kothi.id}>
+                        {kothi.name}
                       </option>
                     ))}
                   </select>
@@ -241,14 +405,26 @@ export default function PmcEmployeesPage() {
                 </div>
               )}
 
-              <button
-                onClick={handleCreate}
-                disabled={saving}
-                className="w-full inline-flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-70 transition-colors"
-              >
-                <UserPlus className="h-4 w-4" />
-                {saving ? 'Creating...' : 'Create PMC Login'}
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleSubmit}
+                  disabled={saving}
+                  className="w-full inline-flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-70 transition-colors"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  {saving ? 'Saving...' : editingUserId ? 'Update PMC Login' : 'Create PMC Login'}
+                </button>
+
+                {editingUserId && (
+                  <button
+                    onClick={cancelEdit}
+                    disabled={saving}
+                    className="w-full inline-flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-70 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -270,6 +446,8 @@ export default function PmcEmployeesPage() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Email</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Phone</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Zone</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Ward</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Kothi</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Actions</th>
                     </tr>
@@ -277,13 +455,13 @@ export default function PmcEmployeesPage() {
                   <tbody className="bg-white divide-y divide-gray-100">
                     {loading ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                        <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
                           Loading PMC employees...
                         </td>
                       </tr>
                     ) : pmcUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                        <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
                           No PMC employee logins created yet.
                         </td>
                       </tr>
@@ -295,7 +473,13 @@ export default function PmcEmployeesPage() {
                           <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
                           <td className="px-4 py-3 text-sm text-gray-700">{user.phone || '—'}</td>
                           <td className="px-4 py-3 text-sm font-semibold text-gray-900">
-                            {user.zoneNumber ? `Zone ${user.zoneNumber}` : '—'}
+                            {user.zoneName || (user.zoneNumber ? `Zone ${user.zoneNumber}` : '—')}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {user.wardName || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {user.kothiName || '—'}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${user.isActive === false
@@ -306,13 +490,22 @@ export default function PmcEmployeesPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <button
-                              onClick={() => handleDelete(user.id)}
-                              disabled={deletingId === user.id}
-                              className="text-red-600 hover:text-red-800 font-semibold text-xs border border-red-100 rounded-md px-3 py-1 disabled:opacity-60"
-                            >
-                              {deletingId === user.id ? 'Deleting...' : 'Delete'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleEdit(user)}
+                                disabled={deletingId === user.id}
+                                className="text-primary-600 hover:text-primary-800 font-semibold text-xs border border-primary-100 rounded-md px-3 py-1 disabled:opacity-60"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDelete(user.id)}
+                                disabled={deletingId === user.id}
+                                className="text-red-600 hover:text-red-800 font-semibold text-xs border border-red-100 rounded-md px-3 py-1 disabled:opacity-60"
+                              >
+                                {deletingId === user.id ? 'Deleting...' : 'Delete'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))

@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface User {
   id: string;
@@ -38,41 +40,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithEmail = async (email: string, password?: string) => {
     try {
-      if (email === 'admin@system.local' || email === 'admin') {
-        if (password && password !== 'admin123' && password !== 'password') {
-          throw new Error('Invalid admin credentials');
-        }
-
-        const adminUser: User = {
-          id: 'admin-1',
-          name: 'System Administrator',
-          email: 'admin@system.local',
-          role: 'admin',
-        };
-
-        setUser(adminUser);
-        localStorage.setItem('user', JSON.stringify(adminUser));
-        return;
+      if (!password) {
+        throw new Error('Password is required');
       }
 
-      if (email === 'iswm.pmc@gmail.com') {
-        if (password !== 'pmc789@#') {
-          throw new Error('Invalid PMC credentials');
-        }
+      const usersRef = collection(db, 'approvedUsers');
+      const q = query(usersRef, where('email', '==', email));
+      const querySnapshot = await getDocs(q);
 
-        const pmcUser: User = {
-          id: 'pmc-1',
-          name: 'PMC Member',
-          email: 'iswm.pmc@gmail.com',
-          role: 'pmc_member',
-        };
-
-        setUser(pmcUser);
-        localStorage.setItem('user', JSON.stringify(pmcUser));
-        return;
+      if (querySnapshot.empty) {
+        throw new Error('Invalid credentials');
       }
 
-      throw new Error('Invalid credentials');
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data();
+
+      if (userData.password !== password) {
+        throw new Error('Invalid credentials');
+      }
+
+      if (userData.isActive === false) {
+        throw new Error('Account is deactivated');
+      }
+
+      const dbUser: User = {
+        id: userDoc.id,
+        name: userData.name,
+        email: userData.email,
+        role: userData.role as 'admin' | 'pmc_member',
+      };
+
+      setUser(dbUser);
+      localStorage.setItem('user', JSON.stringify(dbUser));
     } catch (error) {
       console.error('Login failed:', error);
       throw error;

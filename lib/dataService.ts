@@ -29,6 +29,12 @@ export interface User {
   role: string;
   employeeCode?: string;
   zoneNumber?: string;
+  zoneId?: string;
+  zoneName?: string;
+  wardId?: string;
+  wardName?: string;
+  kothiId?: string;
+  kothiName?: string;
   organization?: string;
   department?: string;
   isActive: boolean;
@@ -211,6 +217,28 @@ export interface FeederPointRequest {
   updatedAt?: any;
 }
 
+export interface Zone {
+  id: string;
+  name: string;
+  createdAt?: any;
+}
+
+export interface Ward {
+  id: string;
+  name: string;
+  zoneId: string;
+  zoneName?: string;
+  createdAt?: any;
+}
+
+export interface Kothi {
+  id: string;
+  name: string;
+  wardId: string;
+  wardName?: string;
+  createdAt?: any;
+}
+
 export class DataService {
   private static coerceDate(value: any): Date | null {
     if (!value) {
@@ -304,6 +332,30 @@ export class DataService {
         activeCommissioners: 0
       };
     }
+  }
+
+  static async getZones(): Promise<Zone[]> {
+    const snapshot = await getDocs(collection(db, 'zones'));
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Zone));
+  }
+
+  static async getWards(): Promise<Ward[]> {
+    const snapshot = await getDocs(collection(db, 'wards'));
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Ward));
+  }
+
+  static async getKothis(): Promise<Kothi[]> {
+    const snapshot = await getDocs(collection(db, 'kothis'));
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Kothi));
   }
 
   static async getEmployeePerformance(options?: {
@@ -733,11 +785,17 @@ export class DataService {
     email: string;
     phone: string;
     password: string;
-    zoneNumber: string | number;
+    zoneNumber?: string | number;
+    zoneId?: string;
+    zoneName?: string;
+    wardId?: string;
+    wardName?: string;
+    kothiId?: string;
+    kothiName?: string;
     createdBy?: string;
   }): Promise<void> {
     const userId = `pmc_${input.employeeCode || Date.now()}`;
-    const normalizedZone = String(input.zoneNumber).trim();
+    const normalizedZone = input.zoneNumber ? String(input.zoneNumber).trim() : undefined;
 
     const payload: Omit<User, 'id'> = {
       name: input.name.trim(),
@@ -746,6 +804,12 @@ export class DataService {
       role: 'pmc_member',
       employeeCode: input.employeeCode.trim(),
       zoneNumber: normalizedZone,
+      zoneId: input.zoneId,
+      zoneName: input.zoneName,
+      wardId: input.wardId,
+      wardName: input.wardName,
+      kothiId: input.kothiId,
+      kothiName: input.kothiName,
       permissions: ['view_pmc_reports'],
       isActive: true,
       password: input.password,
@@ -756,6 +820,40 @@ export class DataService {
     };
 
     await setDoc(doc(db, 'approvedUsers', userId), payload);
+  }
+
+  static async updatePmcEmployee(userId: string, input: {
+    name?: string;
+    employeeCode?: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    zoneNumber?: string | number;
+    zoneId?: string;
+    zoneName?: string;
+    wardId?: string;
+    wardName?: string;
+    kothiId?: string;
+    kothiName?: string;
+  }): Promise<void> {
+    const payload: Partial<User> = {};
+    if (input.name !== undefined) payload.name = input.name.trim();
+    if (input.email !== undefined) payload.email = input.email.trim().toLowerCase();
+    if (input.phone !== undefined) payload.phone = input.phone.trim();
+    if (input.employeeCode !== undefined) payload.employeeCode = input.employeeCode.trim();
+    if (input.password) payload.password = input.password; // Only update if provided
+
+    if (input.zoneNumber !== undefined) payload.zoneNumber = input.zoneNumber ? String(input.zoneNumber).trim() : null as any;
+    if (input.zoneId !== undefined) payload.zoneId = input.zoneId;
+    if (input.zoneName !== undefined) payload.zoneName = input.zoneName;
+    if (input.wardId !== undefined) payload.wardId = input.wardId;
+    if (input.wardName !== undefined) payload.wardName = input.wardName;
+    if (input.kothiId !== undefined) payload.kothiId = input.kothiId;
+    if (input.kothiName !== undefined) payload.kothiName = input.kothiName;
+
+    payload.updatedAt = serverTimestamp();
+
+    await updateDoc(doc(db, 'approvedUsers', userId), payload as any);
   }
 
   static onFeederPointRequestsChange(callback: (requests: FeederPointRequest[]) => void) {
