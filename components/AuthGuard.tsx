@@ -8,7 +8,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push('/login');
+      const nextPath = router.asPath && router.asPath !== '/login' ? `?next=${encodeURIComponent(router.asPath)}` : '';
+      router.replace(`/login${nextPath}`);
     }
   }, [isLoading, user, router]);
 

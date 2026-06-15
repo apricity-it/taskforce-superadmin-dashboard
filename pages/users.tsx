@@ -57,92 +57,20 @@ export default function UsersPage() {
   };
 
   const handlePasswordUserLookup = async () => {
-    const searchName = passwordSearchName.trim();
     setPasswordActionStatus(null);
     setPasswordResetInput('');
-
-    if (!searchName) {
-      setPasswordSearchResult(null);
-      setPasswordActionStatus({ type: 'error', message: 'Please enter a name before searching.' });
-      return;
-    }
-
-    setPasswordFetchLoading(true);
-
-    try {
-      const normalizedSearch = searchName.toLowerCase();
-      const localMatches = users.filter(user => (user.name || '').trim().toLowerCase() === normalizedSearch);
-
-      if (localMatches.length === 1) {
-        setPasswordSearchResult(localMatches[0]);
-        setPasswordActionStatus({
-          type: 'success',
-          message: `Loaded ${localMatches[0].name}. Enter a new password to update their account.`
-        });
-        return;
-      }
-
-      if (localMatches.length > 1) {
-        setPasswordSearchResult(null);
-        setPasswordActionStatus({
-          type: 'error',
-          message: 'Multiple users share that name. Refine the search with the full name or include an identifier.'
-        });
-        return;
-      }
-
-      const userRecord = await DataService.findUserByName(searchName);
-
-      if (!userRecord) {
-        setPasswordSearchResult(null);
-        setPasswordActionStatus({ type: 'error', message: `No user found with the name "${searchName}".` });
-      } else {
-        setPasswordSearchResult(userRecord);
-        setPasswordActionStatus({
-          type: 'success',
-          message: `Loaded ${userRecord.name}. Enter a new password to update their account.`
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching user by name:', error);
-      setPasswordSearchResult(null);
-      setPasswordActionStatus({ type: 'error', message: 'Failed to fetch user. Please try again.' });
-    } finally {
-      setPasswordFetchLoading(false);
-    }
+    setPasswordSearchResult(null);
+    setPasswordActionStatus({
+      type: 'error',
+      message: 'Password reset from this dashboard is disabled. Manage credentials in Firebase Authentication.'
+    });
   };
 
   const handlePasswordUpdate = async () => {
-    if (!passwordSearchResult) {
-      setPasswordActionStatus({ type: 'error', message: 'Fetch a user before updating the password.' });
-      return;
-    }
-
-    const newPassword = passwordResetInput.trim();
-    if (!newPassword) {
-      setPasswordActionStatus({ type: 'error', message: 'Please enter a new password.' });
-      return;
-    }
-
-    setPasswordUpdateLoading(true);
-    setPasswordActionStatus(null);
-
-    try {
-      await DataService.updateUserPassword(passwordSearchResult.id, newPassword);
-      setPasswordActionStatus({
-        type: 'success',
-        message: `Password updated for ${passwordSearchResult.name}.`
-      });
-      setPasswordResetInput('');
-    } catch (error) {
-      console.error('Error updating user password:', error);
-      setPasswordActionStatus({
-        type: 'error',
-        message: 'Could not update password. Please try again.'
-      });
-    } finally {
-      setPasswordUpdateLoading(false);
-    }
+    setPasswordActionStatus({
+      type: 'error',
+      message: 'Password reset from this dashboard is disabled. Manage credentials in Firebase Authentication.'
+    });
   };
 
   const filterUsers = () => {
@@ -425,9 +353,9 @@ export default function UsersPage() {
       <div className="card bg-white border border-blue-100 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Reset User Password</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Authentication Management</h2>
             <p className="mt-1 text-sm text-gray-600">
-              Search for a user by name to load their account details from Firebase and set a new password.
+              Password reset is no longer handled inside this dashboard. Manage credentials in Firebase Authentication.
             </p>
           </div>
         </div>

@@ -58,7 +58,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const handleLogout = async () => {
     await logout()
-    router.push('/login')
+    router.replace('/login')
   }
 
   return (

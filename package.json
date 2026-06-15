@@ -1,15 +1,12 @@
 {
-  "homepage": "https://apricityDigital.github.io/taskforce-superadmin-dashboard/",
   "name": "super-admin-dashboard",
   "version": "1.0.0",
   "description": "Centralized Super Admin Dashboard for Taskforce Management",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node -e \"const fs = require('fs'); fs.mkdirSync('out', { recursive: true }); fs.writeFileSync('out/.nojekyll', '')\"",
+    "build": "next build",
     "start": "next start",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d out",
     "test": "jest"
   },
   "dependencies": {

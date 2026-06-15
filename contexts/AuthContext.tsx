@@ -1,6 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface User {
   id: string;
@@ -11,7 +9,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  loginWithEmail: (email: string, password?: string) => Promise<void>;
+  loginWithEmail: (email: string, password?: string) => Promise<User>;
   logout: () => Promise<void>;
   isLoading: boolean;
 }
@@ -31,54 +29,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
+    const loadSession = async () => {
+      try {
+        const response = await fetch('/api/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          localStorage.removeItem('user');
+          setUser(null);
+          return;
+        }
+
+        const data = await response.json();
+        setUser(data.user);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      } catch (error) {
+        console.error('Session restore failed:', error);
+        localStorage.removeItem('user');
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void loadSession();
   }, []);
 
   const loginWithEmail = async (email: string, password?: string) => {
-    try {
-      if (!password) {
-        throw new Error('Password is required');
-      }
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ email, password }),
+    });
 
-      const usersRef = collection(db, 'approvedUsers');
-      const q = query(usersRef, where('email', '==', email));
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        throw new Error('Invalid credentials');
-      }
-
-      const userDoc = querySnapshot.docs[0];
-      const userData = userDoc.data();
-
-      if (userData.password !== password) {
-        throw new Error('Invalid credentials');
-      }
-
-      if (userData.isActive === false) {
-        throw new Error('Account is deactivated');
-      }
-
-      const dbUser: User = {
-        id: userDoc.id,
-        name: userData.name,
-        email: userData.email,
-        role: userData.role as 'admin' | 'pmc_member',
-      };
-
-      setUser(dbUser);
-      localStorage.setItem('user', JSON.stringify(dbUser));
-    } catch (error) {
-      console.error('Login failed:', error);
-      throw error;
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data?.message || 'Login failed');
     }
+
+    const loggedInUser = data.user as User;
+    setUser(loggedInUser);
+    localStorage.setItem('user', JSON.stringify(loggedInUser));
+    return loggedInUser;
   };
 
   const logout = async () => {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => null);
+
     setUser(null);
     localStorage.removeItem('user');
   };

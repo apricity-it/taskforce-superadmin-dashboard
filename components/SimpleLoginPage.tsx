@@ -111,19 +111,11 @@ export default function SimpleLoginPage({ onLogin }: LoginPageProps) {
             </button>
           </form>
 
-          {/* Demo Credentials */}
           <div className="mt-8 p-6 bg-white/5 rounded-2xl border border-white/10">
-            <h3 className="text-sm font-medium text-blue-200 mb-3">Demo Credentials</h3>
-            <div className="text-sm text-blue-200/80 space-y-2">
-              <div className="flex justify-between">
-                <span>Email:</span>
-                <code className="bg-white/10 px-2 py-1 rounded text-blue-100">rootadmin</code>
-              </div>
-              <div className="flex justify-between">
-                <span>Password:</span>
-                <code className="bg-white/10 px-2 py-1 rounded text-blue-100">qwerty</code>
-              </div>
-            </div>
+            <h3 className="text-sm font-medium text-blue-200 mb-3">Access Policy</h3>
+            <p className="text-sm text-blue-200/80">
+              Sign in with a Firebase Authentication account that is already approved for dashboard access.
+            </p>
           </div>
         </div>
       </div>

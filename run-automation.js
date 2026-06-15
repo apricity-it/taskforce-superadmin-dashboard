@@ -6,8 +6,8 @@ const FormData = require('form-data');
 
 const LOGIN_URL = 'http://localhost:3000/login';
 const AUTOMATION_URL = 'http://localhost:3000/automation';
-const EMAIL = 'admin@system.local';
-const PASSWORD = 'admin123';
+const EMAIL = process.env.DASHBOARD_EMAIL;
+const PASSWORD = process.env.DASHBOARD_PASSWORD;
 
 // --- IMPORTANT: Replace these with your actual n8n details ---
 const N8N_WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL'; // e.g., 'https://n8n.yourdomain.com/webhook/1234-5678'
@@ -41,6 +41,10 @@ async function sendToN8n(pdfPath) {
   let pdfPath = '';
 
   try {
+    if (!EMAIL || !PASSWORD) {
+      throw new Error('Set DASHBOARD_EMAIL and DASHBOARD_PASSWORD before running automation.');
+    }
+
     console.log('Launching browser...');
     browser = await puppeteer.launch({ headless: false });
     const page = await browser.newPage();

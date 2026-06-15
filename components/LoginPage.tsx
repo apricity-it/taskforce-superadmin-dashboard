@@ -229,7 +229,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </motion.button>
           </motion.form>
 
-          {/* Demo Credentials */}
           <motion.div
             className="mt-8 p-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10"
             initial={{ opacity: 0, y: 20 }}
@@ -238,18 +237,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           >
             <h3 className="text-sm font-medium text-blue-200 mb-3 flex items-center">
               <Sparkles className="h-4 w-4 mr-2" />
-              Demo Credentials
+              Access Policy
             </h3>
-            <div className="text-sm text-blue-200/80 space-y-2">
-              <div className="flex justify-between">
-                <span>Email:</span>
-                <code className="bg-white/10 px-2 py-1 rounded text-blue-100">rootadmin</code>
-              </div>
-              <div className="flex justify-between">
-                <span>Password:</span>
-                <code className="bg-white/10 px-2 py-1 rounded text-blue-100">qwerty</code>
-              </div>
-            </div>
+            <p className="text-sm text-blue-200/80">
+              Use a Firebase Authentication account that is approved for dashboard access.
+            </p>
           </motion.div>
         </motion.div>
       </motion.div>

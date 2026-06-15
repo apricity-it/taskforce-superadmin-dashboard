@@ -8,17 +8,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { loginWithEmail } = useAuth();
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsSubmitting(true);
     try {
       await loginWithEmail(email, password);
-      router.push('/');
+      const nextPath = typeof router.query.next === 'string' ? router.query.next : '/';
+      router.replace(nextPath);
     } catch (err) {
-      setError('Failed to login. Please check your credentials.');
+      setError(err instanceof Error ? err.message : 'Failed to login. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -70,9 +75,10 @@ export default function LoginPage() {
           <div>
             <button
               type="submit"
+              disabled={isSubmitting}
               className="flex justify-center w-full px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-all duration-300 ease-in-out transform hover:scale-105"
             >
-              Sign in
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
         </form>

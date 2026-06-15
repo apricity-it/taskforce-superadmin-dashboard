@@ -44,6 +44,7 @@ export interface User {
   permissions?: string[];
   approvedAt?: any;
   approvedBy?: string;
+  updatedAt?: any;
 }
 
 export interface ComplianceReport {
@@ -784,7 +785,7 @@ export class DataService {
     employeeCode: string;
     email: string;
     phone: string;
-    password: string;
+    password?: string;
     zoneNumber?: string | number;
     zoneId?: string;
     zoneName?: string;
@@ -812,7 +813,6 @@ export class DataService {
       kothiName: input.kothiName,
       permissions: ['view_pmc_reports'],
       isActive: true,
-      password: input.password,
       approvedAt: serverTimestamp(),
       approvedBy: input.createdBy || 'superadmin',
       createdAt: serverTimestamp(),
@@ -827,7 +827,6 @@ export class DataService {
     employeeCode?: string;
     email?: string;
     phone?: string;
-    password?: string;
     zoneNumber?: string | number;
     zoneId?: string;
     zoneName?: string;
@@ -841,7 +840,6 @@ export class DataService {
     if (input.email !== undefined) payload.email = input.email.trim().toLowerCase();
     if (input.phone !== undefined) payload.phone = input.phone.trim();
     if (input.employeeCode !== undefined) payload.employeeCode = input.employeeCode.trim();
-    if (input.password) payload.password = input.password; // Only update if provided
 
     if (input.zoneNumber !== undefined) payload.zoneNumber = input.zoneNumber ? String(input.zoneNumber).trim() : null as any;
     if (input.zoneId !== undefined) payload.zoneId = input.zoneId;
@@ -1193,9 +1191,8 @@ export class DataService {
     await updateDoc(userRef, data);
   }
 
-  static async updateUserPassword(id: string, password: string): Promise<void> {
-    const userRef = doc(db, 'approvedUsers', id);
-    await updateDoc(userRef, { password });
+  static async updateUserPassword(_id: string, _password: string): Promise<void> {
+    throw new Error('Password updates have moved to Firebase Authentication and are disabled in this dashboard.');
   }
 
   static async deleteUser(id: string): Promise<void> {

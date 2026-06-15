@@ -4,7 +4,6 @@ import {
   UserPlus,
   Mail,
   Phone,
-  Lock,
   MapPin,
   Hash,
   ShieldCheck,
@@ -94,11 +93,7 @@ export default function PmcEmployeesPage() {
   const handleSubmit = async () => {
     setStatus(null)
     if (!form.name.trim() || !form.employeeCode.trim() || !form.email.trim() || !form.phone.trim()) {
-      setStatus({ type: 'error', message: 'All fields except password are required.' })
-      return
-    }
-    if (!editingUserId && !form.password.trim()) {
-      setStatus({ type: 'error', message: 'Password is required for new users.' })
+      setStatus({ type: 'error', message: 'Name, employee code, email, and phone are required.' })
       return
     }
 
@@ -110,7 +105,6 @@ export default function PmcEmployeesPage() {
           employeeCode: form.employeeCode,
           email: form.email,
           phone: form.phone,
-          password: form.password || undefined,
           zoneNumber: form.zoneName,
           zoneId: form.zoneId,
           zoneName: form.zoneName,
@@ -119,14 +113,13 @@ export default function PmcEmployeesPage() {
           kothiId: form.kothiId,
           kothiName: form.kothiName
         })
-        setStatus({ type: 'success', message: 'PMC employee login updated successfully.' })
+        setStatus({ type: 'success', message: 'PMC employee profile updated successfully.' })
       } else {
         await DataService.createPmcEmployee({
           name: form.name,
           employeeCode: form.employeeCode,
           email: form.email,
           phone: form.phone,
-          password: form.password,
           zoneNumber: form.zoneName,
           zoneId: form.zoneId,
           zoneName: form.zoneName,
@@ -135,7 +128,7 @@ export default function PmcEmployeesPage() {
           kothiId: form.kothiId,
           kothiName: form.kothiName
         })
-        setStatus({ type: 'success', message: 'PMC employee login created successfully.' })
+        setStatus({ type: 'success', message: 'PMC employee profile created successfully. Provision login in Firebase Authentication separately.' })
       }
 
       setEditingUserId(null)
@@ -301,18 +294,9 @@ export default function PmcEmployeesPage() {
                   />
                 </label>
 
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    <Lock className="h-4 w-4 text-primary-500" /> Password
-                  </span>
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => updateField('password', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    placeholder={editingUserId ? "Leave blank to keep unchanged" : "Set login password"}
-                  />
-                </label>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  Login passwords are no longer stored in this dashboard. Create or update the user's credentials in Firebase Authentication separately.
+                </div>
 
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
