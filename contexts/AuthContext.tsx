@@ -16,6 +16,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const STATIC_ADMIN_EMAIL = 'admin@system.local';
+const STATIC_ADMIN_PASSWORD = 'admin123';
+const STATIC_ADMIN_USER: User = {
+  id: 'super-admin',
+  name: 'Super Admin',
+  email: STATIC_ADMIN_EMAIL,
+  role: 'admin',
+};
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -29,61 +38,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const loadSession = async () => {
-      try {
-        const response = await fetch('/api/auth/me', {
-          method: 'GET',
-          credentials: 'include',
-        });
-
-        if (!response.ok) {
-          localStorage.removeItem('user');
-          setUser(null);
-          return;
-        }
-
-        const data = await response.json();
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      } catch (error) {
-        console.error('Session restore failed:', error);
-        localStorage.removeItem('user');
-        setUser(null);
-      } finally {
-        setIsLoading(false);
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
       }
-    };
-
-    void loadSession();
+    } catch (error) {
+      console.error('Session restore failed:', error);
+      localStorage.removeItem('user');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const loginWithEmail = async (email: string, password?: string) => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({ email, password }),
-    });
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data?.message || 'Login failed');
+    if (normalizedEmail !== STATIC_ADMIN_EMAIL || password !== STATIC_ADMIN_PASSWORD) {
+      throw new Error('Invalid credentials');
     }
 
-    const loggedInUser = data.user as User;
-    setUser(loggedInUser);
-    localStorage.setItem('user', JSON.stringify(loggedInUser));
-    return loggedInUser;
+    setUser(STATIC_ADMIN_USER);
+    localStorage.setItem('user', JSON.stringify(STATIC_ADMIN_USER));
+    return STATIC_ADMIN_USER;
   };
 
   const logout = async () => {
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    }).catch(() => null);
-
     setUser(null);
     localStorage.removeItem('user');
   };
