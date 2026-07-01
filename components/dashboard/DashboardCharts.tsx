@@ -513,6 +513,32 @@ export function ShiftPunctualityCard({ data, dark }: { data: SlotPunctuality; da
 
       <div className="spc-div" style={{ margin: '14px 0' }} />
 
+      {/* ── 4.5. Punch-out compliance ── */}
+      {data.totalShifts > 0 && (
+        <>
+          <div className="spc-sec-hd">Punch-out compliance</div>
+          <div className="spc-stack">
+            {data.punchedOut > 0 && (
+              <div className="spc-stack-seg" style={{ width: `${data.punchOutRate}%`, background: '#22c55e' }} />
+            )}
+            {data.notPunchedOut > 0 && (
+              <div className="spc-stack-seg" style={{ width: `${100 - data.punchOutRate}%`, background: '#ef4444' }} />
+            )}
+          </div>
+          <div className="spc-leg" style={{ paddingBottom: 14 }}>
+            <span className="spc-li">
+              <span className="spc-sq" style={{ background: '#22c55e' }} />
+              Punched out — {data.punchedOut.toLocaleString()} ({data.punchOutRate}%)
+            </span>
+            <span className="spc-li">
+              <span className="spc-sq" style={{ background: '#ef4444' }} />
+              Not punched out — {data.notPunchedOut.toLocaleString()} ({100 - data.punchOutRate}%)
+            </span>
+          </div>
+          <div className="spc-div" style={{ margin: '0 0 14px' }} />
+        </>
+      )}
+
       {/* ── 5. Insight ── */}
       <div className="spc-ins">
         <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>{score >= 75 ? '✅' : score >= 50 ? '⚠️' : '🔴'}</span>
@@ -521,7 +547,9 @@ export function ShiftPunctualityCard({ data, dark }: { data: SlotPunctuality; da
 
       {/* ── 6. Footer ── */}
       <div className="spc-foot">
-        <span style={{ fontSize: 11, color: muted }}>{data.total.toLocaleString()} slots across all chronic shifts</span>
+        <span style={{ fontSize: 11, color: muted }}>
+          {data.total.toLocaleString()} slots · {data.totalShifts.toLocaleString()} completed shifts ({data.punchOutRate}% punched out)
+        </span>
         <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: scoreColor }}>Score {score}/100</span>
       </div>
     </Card>

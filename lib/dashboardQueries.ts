@@ -87,6 +87,9 @@ export interface ShiftReport {
   slots: ShiftSlot[] | Record<string, ShiftSlot>
   startedAt: Timestamp
   completedAt?: Timestamp
+  isPunchedOut?: boolean
+  punchedOutAt?: Timestamp
+  punchedOutLocation?: { latitude: number; longitude: number }
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -232,8 +235,12 @@ export interface DashboardKPIs {
   actionTaken: number
   totalFeederPoints: number
   activeFeederPoints: number
+  assignedFeederPoints: number
+  unassignedFeederPoints: number
   totalChronicPoints: number
   activeChronicPoints: number
+  assignedChronicPoints: number
+  unassignedChronicPoints: number
   eliminatedPoints: number
   unassignedPoints: number
   totalShiftReports: number
@@ -241,9 +248,11 @@ export interface DashboardKPIs {
   inProgressShifts: number
   totalUsers: number
   activeUsers: number
+  inactiveUsers: number
   adminUsers: number
   qcUsers: number
   taskForceUsers: number
+  actionOfficerUsers: number
   commissionerUsers: number
   pendingPointRequests: number
   pendingFreqRequests: number
@@ -282,6 +291,10 @@ export interface SlotPunctuality {
   missed: number
   pending: number
   total: number
+  punchedOut: number
+  notPunchedOut: number
+  totalShifts: number
+  punchOutRate: number
 }
 
 export interface TeamLeaderboardEntry {
@@ -511,11 +524,18 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
  
   const feederPts  = allPoints.filter(p => p.type === 'feeder')
   const chronicPts = allPoints.filter(p => p.type === 'chronic')
+
+ const isAssigned = (p: any) => !!(p.assignedTeamId || p.assignedUserId || p.assignedUserIds?.length)
+  const isUnassigned = (p: any) => !p.assignedTeamId && !p.assignedUserId && !(p.assignedUserIds?.length)
  
   const totalFeederPoints   = feederPts.length
   const activeFeederPoints  = feederPts.filter(p => p.status === 'active' && !p.isEliminated).length
+  const assignedFeederPoints = feederPts.filter(isAssigned).length
+  const unassignedFeederPoints = feederPts.filter(isUnassigned).length
   const totalChronicPoints  = chronicPts.length
   const activeChronicPoints = chronicPts.filter(p => p.status === 'active' && !p.isEliminated).length
+  const assignedChronicPoints = chronicPts.filter(isAssigned).length
+  const unassignedChronicPoints = chronicPts.filter(isUnassigned).length
   const eliminatedPoints    = allPoints.filter(p => p.isEliminated).length
   const unassignedPoints    = allPoints.filter(p =>
     !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !(p.assignedUserIds?.length)
@@ -526,8 +546,8 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
     totalReports, pendingReports, approvedReports, rejectedReports,
     requiresAction, actionTaken,
     totalShiftReports, completedShifts, inProgressShifts,
-    totalUsers, activeUsers,
-    adminUsers, qcUsers, taskForceUsers, commissionerUsers,
+    totalUsers, activeUsers, inactiveUsers,
+    adminUsers, qcUsers, taskForceUsers, actionOfficerUsers, commissionerUsers,
     pendingPointRequests, pendingFreqRequests, pendingAccessRequests,
     unreadNotifications,
   ] = await Promise.all([
@@ -542,9 +562,11 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
     safe(() => getCountFromServer(query(sr, where('status', '==', 'in_progress'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(au).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('isActive', '==', true))).then(s => s.data().count), 0),
+    safe(() => getCountFromServer(query(au, where('isActive', '==', false))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'admin'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'qc'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'task_force_team'))).then(s => s.data().count), 0),
+    safe(() => getCountFromServer(query(au, where('role', '==', 'pmc_member'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'commissioner'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(collection(db, 'feederPointRequests'), where('status', '==', 'pending'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(collection(db, 'frequencyRequests'), where('status', '==', 'pending'))).then(s => s.data().count), 0),
@@ -555,12 +577,12 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
   return {
     totalReports, pendingReports, approvedReports, rejectedReports,
     requiresAction, actionTaken,
-    totalFeederPoints, activeFeederPoints,
-    totalChronicPoints, activeChronicPoints,
+    totalFeederPoints, activeFeederPoints, assignedFeederPoints, unassignedFeederPoints,
+    totalChronicPoints, activeChronicPoints, assignedChronicPoints, unassignedChronicPoints,
     eliminatedPoints, unassignedPoints,
     totalShiftReports, completedShifts, inProgressShifts,
-    totalUsers, activeUsers,
-    adminUsers, qcUsers, taskForceUsers, commissionerUsers,
+    totalUsers, activeUsers, inactiveUsers,
+    adminUsers, qcUsers, taskForceUsers, actionOfficerUsers, commissionerUsers,
     pendingPointRequests, pendingFreqRequests, pendingAccessRequests,
     totalNotifications: totalReports,
     unreadNotifications,
@@ -661,21 +683,48 @@ export function buildChecklistFailures(reports: ComplianceReport[]): ChecklistFa
 }
 
 export function buildSlotPunctuality(shifts: ShiftReport[]): SlotPunctuality {
-  const result: SlotPunctuality = { onTime: 0, late: 0, missed: 0, pending: 0, total: 0 }
+  const result: SlotPunctuality = {
+    onTime: 0, late: 0, missed: 0, pending: 0, total: 0,
+    punchedOut: 0, notPunchedOut: 0, totalShifts: 0, punchOutRate: 0,
+  }
+
   shifts.forEach(shift => {
     const slots: ShiftSlot[] = Array.isArray(shift.slots)
       ? shift.slots
       : Object.values(shift.slots || {})
     slots.forEach(slot => {
       result.total++
-      switch (slot.status) {
-        case 'submitted': result.onTime++; break
-        case 'late': result.late++; break
-        case 'missed': result.missed++; break
-        default: result.pending++; break
+      switch (slot.status as string) {
+        case 'completed':
+        case 'submitted': // legacy/alias support
+          result.onTime++
+          break
+        case 'late':
+          result.late++
+          break
+        case 'missed':
+          result.missed++
+          break
+        case 'active':
+        case 'pending':
+        default:
+          result.pending++
+          break
       }
     })
+
+    // Punch-out only meaningful for shifts that have actually finished
+    if (shift.status === 'completed') {
+      result.totalShifts++
+      if (shift.isPunchedOut) result.punchedOut++
+      else result.notPunchedOut++
+    }
   })
+
+  result.punchOutRate = result.totalShifts > 0
+    ? Math.round((result.punchedOut / result.totalShifts) * 100)
+    : 0
+
   return result
 }
 

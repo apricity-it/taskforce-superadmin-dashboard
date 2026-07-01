@@ -15,7 +15,11 @@ export type DrillDownMetric =
   | 'totalReports' | 'pendingReports' | 'requiresAction'
   | 'approvedReports' | 'actionTaken'
   | 'feederPoints' | 'chronicPoints' | 'shiftReports'
-  | 'activeUsers' | 'pendingRequests'
+  | 'assignedFeederPoints' | 'unassignedFeederPoints'
+  | 'assignedChronicPoints' | 'unassignedChronicPoints'
+  | 'activeUsers' | 'inactiveUsers'
+  | 'adminUsers' | 'qcUsers' | 'taskForceUsers' | 'actionOfficerUsers'
+  | 'pendingRequests' | 'rejectedReports'
   | null
 
 interface DrillDownModalProps {
@@ -74,13 +78,15 @@ export function DrillDownModal({
       case 'pendingReports':
       case 'requiresAction':
       case 'approvedReports':
-      case 'actionTaken': {
+      case 'actionTaken':
+      case 'rejectedReports': {
         const statusFilter = {
           totalReports: null,
           pendingReports: 'pending',
           requiresAction: 'requires_action',
           approvedReports: 'approved',
           actionTaken: 'action_taken',
+          rejectedReports: 'rejected',
         }[metric]
 
         const filtered = statusFilter
@@ -93,6 +99,7 @@ export function DrillDownModal({
           requiresAction: 'Requires Action',
           approvedReports: 'Approved Reports',
           actionTaken: 'Action Taken',
+          rejectedReports: 'Rejected Reports',
         }
 
         const byTeam: Record<string, number> = {}
@@ -124,22 +131,22 @@ export function DrillDownModal({
         ].filter(t => t.value > 0)
 
         // Feeder vs chronic split
-        const feederReports  = filtered.filter(r => (r.feederPointType ?? 'feeder') === 'feeder').length
+        const feederReports = filtered.filter(r => (r.feederPointType ?? 'feeder') === 'feeder').length
         const chronicReports = filtered.filter(r => r.feederPointType === 'chronic').length
 
         const statusBreakdown = !statusFilter ? [
-          { status: 'approved',        count: kpis.approvedReports, color: T.green  },
-          { status: 'pending',         count: kpis.pendingReports,  color: T.amber  },
-          { status: 'rejected',        count: kpis.rejectedReports, color: T.red    },
-          { status: 'requires action', count: kpis.requiresAction,  color: dark ? '#ff6b81' : '#e74c3c' },
-          { status: 'action taken',    count: kpis.actionTaken,     color: dark ? '#70a1ff' : '#3b82f6' },
+          { status: 'approved', count: kpis.approvedReports, color: T.green },
+          { status: 'pending', count: kpis.pendingReports, color: T.amber },
+          { status: 'rejected', count: kpis.rejectedReports, color: T.red },
+          { status: 'requires action', count: kpis.requiresAction, color: dark ? '#ff6b81' : '#e74c3c' },
+          { status: 'action taken', count: kpis.actionTaken, color: dark ? '#70a1ff' : '#3b82f6' },
         ] : null
 
         const distances = filtered
           .map(r => r.distanceFromFeederPoint)
           .filter((d): d is number => d != null && d > 0)
-        const avgDist  = distances.length > 0 ? Math.round(distances.reduce((a, b) => a + b, 0) / distances.length) : 0
-        const maxDist  = distances.length > 0 ? Math.round(Math.max(...distances)) : 0
+        const avgDist = distances.length > 0 ? Math.round(distances.reduce((a, b) => a + b, 0) / distances.length) : 0
+        const maxDist = distances.length > 0 ? Math.round(Math.max(...distances)) : 0
         const over100m = distances.filter(d => d > 100).length
 
         return {
@@ -147,31 +154,31 @@ export function DrillDownModal({
           mainValue: filtered.length,
           accent: statusFilter ? getStatusColor(statusFilter, dark) : T.accent,
           subMetrics: [
-            { label: 'Feeder reports',   value: feederReports,              color: T.accent  },
-            { label: 'Chronic reports',  value: chronicReports,             color: T.gold    },
-            { label: 'Trip 1',           value: trip1,                      color: T.green   },
-            { label: 'Trip 2',           value: trip2,                      color: T.amber   },
-            { label: 'Trip 3',           value: trip3,                      color: T.purple  },
-            { label: 'Avg distance',     value: `${avgDist}m`,              color: T.textSecondary },
-            { label: 'GPS anomalies',    value: over100m,                   color: T.red     },
-            { label: 'Unique points',    value: Object.keys(byPoint).length, color: T.accent },
+            { label: 'Feeder reports', value: feederReports, color: T.accent },
+            { label: 'Chronic reports', value: chronicReports, color: T.gold },
+            { label: 'Trip 1', value: trip1, color: T.green },
+            { label: 'Trip 2', value: trip2, color: T.amber },
+            { label: 'Trip 3', value: trip3, color: T.purple },
+            { label: 'Avg distance', value: `${avgDist}m`, color: T.textSecondary },
+            { label: 'GPS anomalies', value: over100m, color: T.red },
+            { label: 'Unique points', value: Object.keys(byPoint).length, color: T.accent },
           ],
           charts: [
-            { title: 'By team (top 10)',         data: teamChart,  color: T.accent  },
-            { title: 'By feeder point (top 10)', data: pointChart, color: T.purple  },
-            { title: 'By trip number',           data: tripChart,  color: T.gold    },
+            { title: 'By team (top 10)', data: teamChart, color: T.accent },
+            { title: 'By feeder point (top 10)', data: pointChart, color: T.purple },
+            { title: 'By trip number', data: tripChart, color: T.gold },
           ],
           statusBreakdown,
           tableData: filtered.slice(0, 100).map(r => ({
-            ID:       r.id.slice(0, 8),
-            Status:   r.status,
-            Type:     r.feederPointType ?? 'feeder',
-            Point:    r.feederPointName || '—',
-            Team:     r.teamName || '—',
-            User:     r.userName || '—',
-            Trip:     r.tripNumber ?? '—',
+            ID: r.id.slice(0, 8),
+            Status: r.status,
+            Type: r.feederPointType ?? 'feeder',
+            Point: r.feederPointName || '—',
+            Team: r.teamName || '—',
+            User: r.userName || '—',
+            Trip: r.tripNumber ?? '—',
             'Dist(m)': r.distanceFromFeederPoint?.toFixed(0) || '—',
-            Date:     r.tripDate || '—',
+            Date: r.tripDate || '—',
           })),
           exportData: filtered.map(r => ({
             ID: r.id, Status: r.status, Type: r.feederPointType ?? 'feeder',
@@ -182,17 +189,26 @@ export function DrillDownModal({
         }
       }
 
-      case 'feederPoints':
-      case 'chronicPoints': {
-        const type = metric === 'feederPoints' ? 'feeder' : 'chronic'
-        const filtered = points.filter(p => (p.type ?? 'feeder') === type)
+     case 'feederPoints':
+      case 'chronicPoints':
+      case 'assignedFeederPoints':
+      case 'unassignedFeederPoints':
+      case 'assignedChronicPoints':
+      case 'unassignedChronicPoints': {
+        const type = metric.toLowerCase().includes('chronic') ? 'chronic' : 'feeder'
+        const wantsAssigned = metric.startsWith('assigned')
+        const wantsUnassigned = metric.startsWith('unassigned')
+        const isAssigned = (p: FeederPoint) => !p.isEliminated && (p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)
+        let filtered = points.filter(p => (p.type ?? 'feeder') === type)
+        if (wantsAssigned) filtered = filtered.filter(isAssigned)
+        if (wantsUnassigned) filtered = filtered.filter(p => !isAssigned(p) && !p.isEliminated)
 
-        const active      = filtered.filter(p => p.status === 'active' && !p.isEliminated).length
+        const active = filtered.filter(p => p.status === 'active' && !p.isEliminated).length
         const maintenance = filtered.filter(p => p.status === 'maintenance' && !p.isEliminated).length
-        const eliminated  = filtered.filter(p => p.isEliminated).length
-        const inactive    = filtered.filter(p => p.status === 'inactive' && !p.isEliminated).length
-        const assigned    = filtered.filter(p => !p.isEliminated && (p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)).length
-        const unassigned  = filtered.filter(p => !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !((p as any).assignedUserIds?.length)).length
+        const eliminated = filtered.filter(p => p.isEliminated).length
+        const inactive = filtered.filter(p => p.status === 'inactive' && !p.isEliminated).length
+        const assigned = filtered.filter(p => !p.isEliminated && (p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)).length
+        const unassigned = filtered.filter(p => !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !((p as any).assignedUserIds?.length)).length
 
         const byZone: Record<string, number> = {}
         filtered.forEach(p => { const z = p.zoneName || 'Unknown'; byZone[z] = (byZone[z] || 0) + 1 })
@@ -210,36 +226,45 @@ export function DrillDownModal({
           .map(([name, value]) => ({ name: name.length > 15 ? name.slice(0, 13) + '…' : name, value }))
           .sort((a, b) => b.value - a.value).slice(0, 8)
 
+       const titleMap: Record<string, string> = {
+          feederPoints: 'Feeder Points',
+          chronicPoints: 'Chronic Points',
+          assignedFeederPoints: 'Assigned Feeder Points',
+          unassignedFeederPoints: 'Unassigned Feeder Points',
+          assignedChronicPoints: 'Assigned Chronic Points',
+          unassignedChronicPoints: 'Unassigned Chronic Points',
+        }
+
         return {
-          title: metric === 'feederPoints' ? 'Feeder Points' : 'Chronic Points',
+          title: titleMap[metric] || metric,
           mainValue: filtered.length,
-          accent: metric === 'feederPoints' ? T.accent : T.gold,
+          accent: type === 'feeder' ? T.accent : T.gold,
           subMetrics: [
-            { label: 'Active',      value: active,      color: T.green   },
-            { label: 'Maintenance', value: maintenance,  color: T.amber   },
-            { label: 'Inactive',    value: inactive,     color: T.textMuted },
-            { label: 'Eliminated',  value: eliminated,   color: T.red     },
-            { label: 'Assigned',    value: assigned,     color: T.accent  },
-            { label: 'Unassigned',  value: unassigned,   color: T.purple  },
+            { label: 'Active', value: active, color: T.green },
+            { label: 'Maintenance', value: maintenance, color: T.amber },
+            { label: 'Inactive', value: inactive, color: T.textMuted },
+            { label: 'Eliminated', value: eliminated, color: T.red },
+            { label: 'Assigned', value: assigned, color: T.accent },
+            { label: 'Unassigned', value: unassigned, color: T.purple },
           ],
           charts: [
-            { title: 'By zone',         data: zoneChart,  color: T.accent  },
-            { title: 'By ward (top 10)', data: wardChart,  color: T.purple  },
-            { title: 'By kothi (top 8)', data: kothiChart, color: T.gold    },
+            { title: 'By zone', data: zoneChart, color: T.accent },
+            { title: 'By ward (top 10)', data: wardChart, color: T.purple },
+            { title: 'By kothi (top 8)', data: kothiChart, color: T.gold },
           ],
           statusBreakdown: [
-            { status: 'active',      count: active,      color: T.green   },
-            { status: 'maintenance', count: maintenance,  color: T.amber   },
-            { status: 'inactive',    count: inactive,     color: T.textMuted },
-            { status: 'eliminated',  count: eliminated,   color: T.red     },
+            { status: 'active', count: active, color: T.green },
+            { status: 'maintenance', count: maintenance, color: T.amber },
+            { status: 'inactive', count: inactive, color: T.textMuted },
+            { status: 'eliminated', count: eliminated, color: T.red },
           ],
           tableData: filtered.slice(0, 100).map(p => ({
-            Name:     p.name,
-            Status:   p.isEliminated ? 'eliminated' : p.status,
-            Zone:     p.zoneName || '—',
-            Ward:     p.wardName || '—',
-            Kothi:    p.kothiName || '—',
-            Team:     p.assignmentDetails?.name || '—',
+            Name: p.name,
+            Status: p.isEliminated ? 'eliminated' : p.status,
+            Zone: p.zoneName || '—',
+            Ward: p.wardName || '—',
+            Kothi: p.kothiName || '—',
+            Team: p.assignmentDetails?.name || '—',
             Priority: p.priority || '—',
           })),
           exportData: filtered.map(p => ({
@@ -247,13 +272,13 @@ export function DrillDownModal({
             Ward: p.wardName, Kothi: p.kothiName, Team: p.assignmentDetails?.name,
             Lat: p.location?.latitude, Lng: p.location?.longitude, Eliminated: p.isEliminated,
           })),
-          exportName: `${type}-points`,
+        exportName: `${type}-points-${metric}`,
         }
       }
 
       case 'shiftReports': {
-        const completed   = shifts.filter(s => s.status === 'completed').length
-        const inProgress  = shifts.filter(s => s.status === 'in_progress').length
+        const completed = shifts.filter(s => s.status === 'completed').length
+        const inProgress = shifts.filter(s => s.status === 'in_progress').length
 
         // Slot completion stats
         let totalSlots = 0, capturedSlots = 0, lateSlots = 0, missedSlots = 0
@@ -287,32 +312,32 @@ export function DrillDownModal({
           mainValue: shifts.length,
           accent: T.purple,
           subMetrics: [
-            { label: 'Completed',    value: completed,   color: T.green   },
-            { label: 'In progress',  value: inProgress,  color: T.amber   },
-            { label: 'Total slots',  value: totalSlots,  color: T.accent  },
-            { label: 'Captured',     value: capturedSlots, color: T.green },
-            { label: 'Late',         value: lateSlots,   color: T.amber   },
-            { label: 'Missed',       value: missedSlots, color: T.red     },
-            { label: 'Slot rate',    value: `${slotRate}%`, color: slotRate >= 70 ? T.green : slotRate >= 40 ? T.amber : T.red },
+            { label: 'Completed', value: completed, color: T.green },
+            { label: 'In progress', value: inProgress, color: T.amber },
+            { label: 'Total slots', value: totalSlots, color: T.accent },
+            { label: 'Captured', value: capturedSlots, color: T.green },
+            { label: 'Late', value: lateSlots, color: T.amber },
+            { label: 'Missed', value: missedSlots, color: T.red },
+            { label: 'Slot rate', value: `${slotRate}%`, color: slotRate >= 70 ? T.green : slotRate >= 40 ? T.amber : T.red },
             { label: 'Unique users', value: Object.keys(byUser).length, color: T.purple },
           ],
           charts: [
-            { title: 'By user (top 10)',       data: userChart,       color: T.purple },
-            { title: 'By chronic point',       data: pointChart,      color: T.gold   },
-            { title: 'By shift type',          data: shiftTypeChart,  color: T.accent },
+            { title: 'By user (top 10)', data: userChart, color: T.purple },
+            { title: 'By chronic point', data: pointChart, color: T.gold },
+            { title: 'By shift type', data: shiftTypeChart, color: T.accent },
           ],
           statusBreakdown: [
-            { status: 'completed',   count: completed,  color: T.green },
+            { status: 'completed', count: completed, color: T.green },
             { status: 'in progress', count: inProgress, color: T.amber },
           ],
           tableData: shifts.slice(0, 100).map(s => ({
-            ID:     s.id.slice(0, 8),
-            Point:  s.feederPointName || '—',
-            User:   s.userName || '—',
-            Shift:  s.shiftType || '—',
-            Date:   s.shiftDate || '—',
+            ID: s.id.slice(0, 8),
+            Point: s.feederPointName || '—',
+            User: s.userName || '—',
+            Shift: s.shiftType || '—',
+            Date: s.shiftDate || '—',
             Status: s.status,
-            Slots:  Array.isArray(s.slots) ? s.slots.length : Object.keys(s.slots || {}).length,
+            Slots: Array.isArray(s.slots) ? s.slots.length : Object.keys(s.slots || {}).length,
           })),
           exportData: shifts.map(s => ({
             ID: s.id, Point: s.feederPointName, User: s.userName,
@@ -322,52 +347,83 @@ export function DrillDownModal({
         }
       }
 
-      case 'activeUsers': {
+     case 'activeUsers':
+      case 'inactiveUsers':
+      case 'adminUsers':
+      case 'qcUsers':
+      case 'taskForceUsers':
+      case 'actionOfficerUsers': {
+        const roleFilterMap: Record<string, string | null> = {
+          adminUsers: 'admin',
+          qcUsers: 'qc',
+          taskForceUsers: 'taskforce',
+          actionOfficerUsers: 'action_officer',
+        }
+        const activeFilterMap: Record<string, boolean | null> = {
+          activeUsers: true,
+          inactiveUsers: false,
+        }
+        const roleFilter = roleFilterMap[metric] ?? null
+        const activeFilter = activeFilterMap[metric] ?? null
+
+        let filteredUsers = users
+        if (roleFilter) filteredUsers = filteredUsers.filter(u => u.role === roleFilter)
+        if (activeFilter !== null) filteredUsers = filteredUsers.filter(u => u.isActive === activeFilter)
+
         const byRole: Record<string, number> = {}
-        users.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1 })
+        filteredUsers.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1 })
         const roleChart = Object.entries(byRole)
           .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value }))
           .sort((a, b) => b.value - a.value)
 
-        const active   = users.filter(u => u.isActive).length
-        const inactive = users.filter(u => !u.isActive).length
+        const active = filteredUsers.filter(u => u.isActive).length
+        const inactive = filteredUsers.filter(u => !u.isActive).length
 
         const byZone: Record<string, number> = {}
-        users.forEach(u => { if (u.zoneNumber) { byZone[`Zone ${u.zoneNumber}`] = (byZone[`Zone ${u.zoneNumber}`] || 0) + 1 } })
+        filteredUsers.forEach(u => { if (u.zoneNumber) { byZone[`Zone ${u.zoneNumber}`] = (byZone[`Zone ${u.zoneNumber}`] || 0) + 1 } })
         const zoneChart = Object.entries(byZone).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 
+        const titleMap: Record<string, string> = {
+          activeUsers: 'Active Users',
+          inactiveUsers: 'Inactive Users',
+          adminUsers: 'Admin Users',
+          qcUsers: 'QC Users',
+          taskForceUsers: 'Taskforce Members',
+          actionOfficerUsers: 'Action Officers',
+        }
+
         return {
-          title: 'Users',
-          mainValue: users.length,
+          title: titleMap[metric] || 'Users',
+          mainValue: filteredUsers.length,
           accent: T.green,
           subMetrics: [
-            { label: 'Active',       value: active,              color: T.green  },
-            { label: 'Inactive',     value: inactive,            color: T.red    },
-            { label: 'Admins',       value: kpis.adminUsers,     color: T.purple },
-            { label: 'QC',           value: kpis.qcUsers,        color: T.accent },
-            { label: 'Task force',   value: kpis.taskForceUsers, color: T.amber  },
-            { label: 'Commissioners',value: kpis.commissionerUsers, color: T.gold },
+            { label: 'Active', value: active, color: T.green },
+            { label: 'Inactive', value: inactive, color: T.red },
+            { label: 'Admins', value: kpis.adminUsers, color: T.purple },
+            { label: 'QC', value: kpis.qcUsers, color: T.accent },
+            { label: 'Task force', value: kpis.taskForceUsers, color: T.amber },
+            { label: 'Action officers', value: kpis.actionOfficerUsers, color: T.gold },
           ],
           charts: [
-            { title: 'By role',  data: roleChart, color: T.accent },
-            { title: 'By zone',  data: zoneChart, color: T.purple },
+            { title: 'By role', data: roleChart, color: T.accent },
+            { title: 'By zone', data: zoneChart, color: T.purple },
           ],
           statusBreakdown: [
-            { status: 'active',   count: active,   color: T.green },
-            { status: 'inactive', count: inactive, color: T.red   },
+            { status: 'active', count: active, color: T.green },
+            { status: 'inactive', count: inactive, color: T.red },
           ],
-          tableData: users.slice(0, 100).map(u => ({
-            Name:   u.name,
-            Email:  u.email,
-            Role:   u.role.replace(/_/g, ' '),
+          tableData: filteredUsers.slice(0, 100).map(u => ({
+            Name: u.name,
+            Email: u.email,
+            Role: u.role.replace(/_/g, ' '),
             Status: u.isActive ? 'active' : 'inactive',
-            Zone:   u.zoneNumber || '—',
+            Zone: u.zoneNumber || '—',
           })),
-          exportData: users.map(u => ({
+          exportData: filteredUsers.map(u => ({
             ID: u.id, Name: u.name, Email: u.email, Phone: u.phone,
             Role: u.role, Active: u.isActive, Zone: u.zoneNumber,
           })),
-          exportName: 'users',
+          exportName: metric,
         }
       }
 
@@ -378,25 +434,25 @@ export function DrillDownModal({
           mainValue: total,
           accent: T.amber,
           subMetrics: [
-            { label: 'Point requests',     value: kpis.pendingPointRequests, color: T.accent },
-            { label: 'Frequency requests', value: kpis.pendingFreqRequests,  color: T.amber  },
-            { label: 'Access requests',    value: kpis.pendingAccessRequests, color: T.purple },
+            { label: 'Point requests', value: kpis.pendingPointRequests, color: T.accent },
+            { label: 'Frequency requests', value: kpis.pendingFreqRequests, color: T.amber },
+            { label: 'Access requests', value: kpis.pendingAccessRequests, color: T.purple },
           ],
           charts: [{
             title: 'By type',
             data: [
-              { name: 'Point requests',     value: kpis.pendingPointRequests  },
-              { name: 'Frequency requests', value: kpis.pendingFreqRequests   },
-              { name: 'Access requests',    value: kpis.pendingAccessRequests },
+              { name: 'Point requests', value: kpis.pendingPointRequests },
+              { name: 'Frequency requests', value: kpis.pendingFreqRequests },
+              { name: 'Access requests', value: kpis.pendingAccessRequests },
             ],
             color: T.amber,
           }],
           statusBreakdown: null,
           tableData: [],
           exportData: [
-            { Type: 'Point Requests',     Count: kpis.pendingPointRequests  },
-            { Type: 'Frequency Requests', Count: kpis.pendingFreqRequests   },
-            { Type: 'Access Requests',    Count: kpis.pendingAccessRequests },
+            { Type: 'Point Requests', Count: kpis.pendingPointRequests },
+            { Type: 'Frequency Requests', Count: kpis.pendingFreqRequests },
+            { Type: 'Access Requests', Count: kpis.pendingAccessRequests },
           ],
           exportName: 'pending-requests',
         }
@@ -411,13 +467,29 @@ export function DrillDownModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
+      className="fixed inset-0 z-[100] flex justify-center"
+      style={{
+        left: '78px',
+        background: 'rgba(0,0,0,0.65)',
+        backdropFilter: 'blur(6px)',
+        alignItems: 'safe center',
+        paddingTop: '80px',
+        paddingBottom: '40px',
+        paddingLeft: '16px',
+        paddingRight: '16px',
+        overflowY: 'auto',
+      }}
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl"
-        style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: 'slideUp 0.3s ease' }}
+        className="relative w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col"
+        style={{
+          background: T.card,
+          border: `1px solid ${T.cardBorder}`,
+          animation: 'slideUp 0.3s ease',
+          maxHeight: 'calc(100vh - 80px)',
+          overflow: 'hidden',
+        }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -452,7 +524,7 @@ export function DrillDownModal({
           </div>
         </div>
 
-        <div className="p-6 flex flex-col gap-5">
+        <div className="p-6 flex flex-col gap-5 overflow-y-auto flex-1">
           {/* Sub-metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {content.subMetrics.map((sm: any, i: number) => (

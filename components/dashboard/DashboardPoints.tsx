@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { getTokens } from '@/lib/dashboardTheme'
 import { Card, SectionHeader } from './DashboardUI'
@@ -104,6 +104,8 @@ function PointsCard({
 }) {
   const T = getTokens(dark)
   const [showList, setShowList] = useState(false)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const active      = allPoints.filter(p => p.status === 'active' && !p.isEliminated).length
   const maintenance = allPoints.filter(p => p.status === 'maintenance' && !p.isEliminated).length
@@ -123,6 +125,25 @@ function PointsCard({
     { label: 'Unassigned',  value: unassigned,   color: T.purple   },
   ].filter(s => s.value > 0)
 
+  const handleMarkerSelect = useCallback((p: FeederPoint) => {
+    setShowList(true)
+    setHighlightedId(p.id)
+  }, [])
+
+  useEffect(() => {
+    if (!showList || !highlightedId) return
+    const t = setTimeout(() => {
+      rowRefs.current[highlightedId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [showList, highlightedId])
+
+  useEffect(() => {
+    if (!highlightedId) return
+    const t = setTimeout(() => setHighlightedId(null), 2000)
+    return () => clearTimeout(t)
+  }, [highlightedId])
+
   return (
     <Card dark={dark} animDelay={delay}>
       <SectionHeader
@@ -135,7 +156,7 @@ function PointsCard({
       {/* Map */}
       <div className="rounded-xl overflow-hidden mb-3" style={{ height: 200 }}>
         {mappable.length > 0 ? (
-          <PointsMap points={mappable} dark={dark} accentColor={markerColor} />
+          <PointsMap points={mappable} dark={dark} accentColor={markerColor} onSelectPoint={handleMarkerSelect} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-2 rounded-xl" style={{ background: dark ? T.surface : '#f0f4f0' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: T.textMuted, opacity: 0.5 }}>
@@ -175,30 +196,35 @@ function PointsCard({
           {points.length === 0 ? (
             <p className="text-[12px] text-center py-4" style={{ color: T.textMuted }}>No active {typeLabel} points</p>
           ) : (
-            points.slice(0, 60).map((p, i) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg"
-                style={{
-                  background: dark ? T.surface : '#f8f7f5',
-                  animation: `slideInLeft 0.3s ease ${i * 20}ms both`,
-                }}
-              >
-                <div className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: getStatusDot(p.status, p.isEliminated ?? false, dark) }} />
-                <span className="flex-1 text-[12px] truncate" style={{ color: T.textPrimary }}>{p.name}</span>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {p.wardName && (
-                    <span className="text-[10px]" style={{ color: T.textMuted }}>{p.wardName}</span>
-                  )}
-                  <span
-                    className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                    style={{ background: `${accent}20`, color: accent }}
-                  >
-                    {typeLabel}
-                  </span>
+            points.slice(0, 60).map((p, i) => {
+              const isHighlighted = p.id === highlightedId
+              return (
+                <div
+                  key={p.id}
+                  ref={el => { rowRefs.current[p.id] = el }}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors duration-300"
+                  style={{
+                    background: isHighlighted ? `${accent}20` : (dark ? T.surface : '#f8f7f5'),
+                    border: isHighlighted ? `1px solid ${accent}50` : '1px solid transparent',
+                    animation: `slideInLeft 0.3s ease ${i * 20}ms both`,
+                  }}
+                >
+                  <div className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: getStatusDot(p.status, p.isEliminated ?? false, dark) }} />
+                  <span className="flex-1 text-[12px] truncate" style={{ color: T.textPrimary, fontWeight: isHighlighted ? 600 : 400 }}>{p.name}</span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {p.wardName && (
+                      <span className="text-[10px]" style={{ color: T.textMuted }}>{p.wardName}</span>
+                    )}
+                    <span
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ background: `${accent}20`, color: accent }}
+                    >
+                      {typeLabel}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
           {points.length > 60 && (
             <p className="text-[11px] text-center py-2" style={{ color: T.textMuted }}>

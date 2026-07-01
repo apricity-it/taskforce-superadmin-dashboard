@@ -237,9 +237,7 @@ export function FilterBar({
         )}
       </span>
 
-      <input type="date" style={inputStyle} value={filters.dateFrom} max={filters.dateTo} onChange={set('dateFrom')} />
-      <span className="text-[11px]" style={{ color: T.textMuted }}>→</span>
-      <input type="date" style={inputStyle} value={filters.dateTo} min={filters.dateFrom} onChange={set('dateTo')} />
+     
 
       <select style={inputStyle} value={filters.zoneId} onChange={set('zoneId')}>
         <option value="">All zones</option>

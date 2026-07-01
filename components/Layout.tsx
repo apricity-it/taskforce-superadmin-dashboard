@@ -195,7 +195,7 @@ export default function Layout({ children }: LayoutProps) {
   }
 
   return (
-    <div className="tf-app-bg relative flex h-screen overflow-hidden font-sans text-[var(--tf-text)]">
+    <div className="tf-app-bg relative flex h-screen font-sans text-[var(--tf-text)]">
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="tf-grid-bg absolute inset-0 opacity-40" />
         <div className="absolute -left-32 top-24 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" />
