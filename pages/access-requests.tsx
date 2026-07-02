@@ -39,14 +39,15 @@ export default function AccessRequestsPage() {
 
 
 
-  const { data: requests = [] as AccessRequest[], isLoading } = useQuery<AccessRequest[]>({
+  const requestsQuery = useQuery<AccessRequest[]>({
     queryKey: ['accessRequests'],
     queryFn: () => new Promise<AccessRequest[]>(resolve => {
       const unsub = DataService.onAccessRequestsChange(data => { resolve(data); unsub() })
     }),
     staleTime: 2 * 60_000,
   })
-
+  const requests: AccessRequest[] = requestsQuery.data ?? []
+  const isLoading = requestsQuery.isLoading
   const [statusF, setStatusF] = useState('all')
   const [search, setSearch] = useState('')
   const [viewing, setViewing] = useState<AccessRequest | null>(null)
