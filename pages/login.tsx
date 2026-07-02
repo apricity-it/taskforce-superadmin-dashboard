@@ -216,7 +216,7 @@ export default function LoginPage() {
       await loginWithEmail(email, password);
       router.push('/');
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      setError(err instanceof Error ? err.message : 'Invalid credentials. Please try again.');
       setIsLoading(false);
     }
   };
