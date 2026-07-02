@@ -75,35 +75,34 @@ export default function ChronicPointsPage() {
     const T = getTokens(dark)
     const qc = useQueryClient()
 
-    const { data: allPoints = [], isLoading: loadingPoints } = useQuery({
+    const { data: allPoints = [], isLoading: loadingPoints } = useQuery<FeederPoint[]>({
         queryKey: ['feederPoints'],
         queryFn: () => DataService.getAllFeederPoints(),
         staleTime: 5 * 60_000,
     })
 
-    const { data: allShifts = [], isLoading: loadingShifts } = useQuery({
+    const { data: allShifts = [], isLoading: loadingShifts } = useQuery<ShiftReport[]>({
         queryKey: ['shiftReports'],
         queryFn: () => DataService.getShiftReports(),
         staleTime: 5 * 60_000,
     })
 
-    const { data: allReports = [], isLoading: loadingReports } = useQuery({
+    const { data: allReports = [], isLoading: loadingReports } = useQuery<ComplianceReport[]>({
         queryKey: ['complianceReports', 'all'],
         queryFn: () => DataService.getAllComplianceReports(),
         staleTime: 5 * 60_000,
     })
 
-    const chronicPoints = useMemo(() => allPoints.filter(p => p.type === 'chronic'), [allPoints])
+    const chronicPoints = useMemo(() => allPoints.filter((p: FeederPoint) => p.type === 'chronic'), [allPoints])
 
     const chronicReports = useMemo(() =>
-        allReports.filter(r => r.feederPointType === 'chronic'),
+        allReports.filter((r: ComplianceReport) => r.feederPointType === 'chronic'),
         [allReports]
     )
-
     // Reports/shifts per point lookup maps
     const reportsByPoint = useMemo(() => {
         const m: Record<string, ComplianceReport[]> = {}
-        chronicReports.forEach(r => {
+        chronicReports.forEach((r: ComplianceReport) => {
             if (!r.feederPointId) return
             if (!m[r.feederPointId]) m[r.feederPointId] = []
             m[r.feederPointId].push(r)
@@ -113,7 +112,7 @@ export default function ChronicPointsPage() {
 
     const shiftsByPoint = useMemo(() => {
         const m: Record<string, ShiftReport[]> = {}
-        allShifts.forEach(s => {
+        allShifts.forEach((s: ShiftReport) => {
             if (!s.feederPointId) return
             if (!m[s.feederPointId]) m[s.feederPointId] = []
             m[s.feederPointId].push(s)
@@ -131,17 +130,17 @@ export default function ChronicPointsPage() {
     // Stats
     const stats = useMemo(() => ({
         total: chronicPoints.length,
-        active: chronicPoints.filter(p => p.status === 'active' && !p.isEliminated).length,
-        eliminated: chronicPoints.filter(p => p.isEliminated).length,
+        active: chronicPoints.filter((p: FeederPoint) => p.status === 'active' && !p.isEliminated).length,
+        eliminated: chronicPoints.filter((p: FeederPoint) => p.isEliminated).length,
         totalReports: chronicReports.length,
-        pending: chronicReports.filter(r => r.status === 'pending').length,
-        approved: chronicReports.filter(r => r.status === 'approved').length,
-        rejected: chronicReports.filter(r => r.status === 'rejected').length,
-        requiresAction: chronicReports.filter(r => r.status === 'requires_action').length,
+        pending: chronicReports.filter((r: ComplianceReport) => r.status === 'pending').length,
+        approved: chronicReports.filter((r: ComplianceReport) => r.status === 'approved').length,
+        rejected: chronicReports.filter((r: ComplianceReport) => r.status === 'rejected').length,
+        requiresAction: chronicReports.filter((r: ComplianceReport) => r.status === 'requires_action').length,
         totalShifts: allShifts.length,
-        completedShifts: allShifts.filter(s => s.status === 'completed').length,
-        inProgress: allShifts.filter(s => s.status === 'in_progress').length,
-        assigned: chronicPoints.filter(p => (p as any).assignedTeamId || (p as any).assignedUserId).length,
+        completedShifts: allShifts.filter((s: ShiftReport) => s.status === 'completed').length,
+        inProgress: allShifts.filter((s: ShiftReport) => s.status === 'in_progress').length,
+        assigned: chronicPoints.filter((p: FeederPoint) => (p as any).assignedTeamId || (p as any).assignedUserId).length,
     }), [chronicPoints, chronicReports, allShifts])
 
     // Filters
@@ -156,11 +155,11 @@ export default function ChronicPointsPage() {
         let r = chronicPoints
         if (search) {
             const s = search.toLowerCase()
-            r = r.filter(p => p.name?.toLowerCase().includes(s) || p.location?.address?.toLowerCase().includes(s))
+            r = r.filter((p: FeederPoint) => p.name?.toLowerCase().includes(s) || p.location?.address?.toLowerCase().includes(s))
         }
-        if (statusF === 'eliminated') r = r.filter(p => p.isEliminated)
-        else if (statusF === 'active') r = r.filter(p => p.status === 'active' && !p.isEliminated)
-        else if (statusF !== 'all') r = r.filter(p => (reportsByPoint[p.id] || []).some(rp => rp.status === statusF))
+        if (statusF === 'eliminated') r = r.filter((p: FeederPoint) => p.isEliminated)
+        else if (statusF === 'active') r = r.filter((p: FeederPoint) => p.status === 'active' && !p.isEliminated)
+        else if (statusF !== 'all') r = r.filter((p: FeederPoint) => (reportsByPoint[p.id] || []).some((rp: ComplianceReport) => rp.status === statusF))
         return r
     }, [chronicPoints, search, statusF, reportsByPoint])
 
@@ -168,7 +167,7 @@ export default function ChronicPointsPage() {
     const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
     const handleExport = () => {
-        const data = filtered.map((p, i) => ({
+        const data = filtered.map((p: FeederPoint, i: number) => ({
             Sr: i + 1,
             Name: p.name,
             ID: p.id,
@@ -320,7 +319,7 @@ export default function ChronicPointsPage() {
                                         <p className="text-sm">No chronic points found</p>
                                     </td>
                                 </tr>
-                            ) : paged.map((point, i) => {
+                            ) : paged.map((point: FeederPoint, i: number) => {
                                 const rpts = reportsByPoint[point.id] || []
                                 const shfts = shiftsByPoint[point.id] || []
                                 const pct = getCompletionRate(point.id)

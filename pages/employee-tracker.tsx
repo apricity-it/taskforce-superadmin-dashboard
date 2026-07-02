@@ -535,9 +535,9 @@ export default function EmployeeTrackerPage() {
         metrics:{totalUsers:new Set(selectedFP.reports.map(r=>r.userId)).size,newRegistrations:0,
           totalComplaints:selectedFP.total,resolvedComplaints:selectedFP.approved,
           activeFeederPoints:1,completedInspections:selectedFP.total},
-        performance:{complaintResolutionRate:Math.round(selectedFP.approved/selectedFP.total*100),
+       performance:{complaintResolutionRate:Math.round(selectedFP.approved/selectedFP.total*100),
           userGrowth:0,operationalEfficiency:Math.round((selectedFP.approved+selectedFP.pending)/selectedFP.total*100)},
-        rawReports:selectedFP.reports
+        rawReports:selectedFP.reports as unknown as ComplianceReport[]
       })
       setFeederAI(aiText?.trim()||null)
     } catch(e) { console.error(e); setFeederAI('Unable to generate AI summary. Please try again.') }

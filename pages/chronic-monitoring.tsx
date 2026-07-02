@@ -206,7 +206,7 @@ export default function ChronicMonitoringPage() {
   const T = getTokens(dark)
 
 const { data: allPoints = [] } = useQuery<FeederPoint[]>({ queryKey: ['feederPoints'], queryFn: () => DataService.getAllFeederPoints(), staleTime: 5*60_000 })
-const chronicPoints = useMemo(() => allPoints.filter((p: FeederPoint) => p.type === 'chronic'), [allPoints])
+const chronicPoints: FeederPoint[] = useMemo(() => allPoints.filter((p: FeederPoint) => p.type === 'chronic'), [allPoints])
 
   const [zones,  setZones]  = useState<Zone[]>([])
   const [wards,  setWards]  = useState<Ward[]>([])

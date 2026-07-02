@@ -14,8 +14,8 @@ function formatDate(value: any): string {
   try {
     const d = typeof value.toDate === 'function' ? value.toDate()
       : typeof value._seconds === 'number' ? new Date(value._seconds * 1000)
-      : value instanceof Date ? value
-      : new Date(value)
+        : value instanceof Date ? value
+          : new Date(value)
     return isNaN(d.getTime()) ? 'N/A' : d.toLocaleString()
   } catch { return 'N/A' }
 }
@@ -32,39 +32,38 @@ export default function FeederPointRequestsPage() {
   const qc = useQueryClient()
 
   // ── Data via React Query ──
-  const { data: requests = [], isLoading } = useQuery({
+  const { data: requests = [], isLoading } = useQuery<FeederPointRequest[]>({
     queryKey: ['feederPointRequests'],
     queryFn: () => new Promise<FeederPointRequest[]>(resolve => {
       const unsub = DataService.onFeederPointRequestsChange((data: FeederPointRequest[]) => { resolve(data); unsub() })
     }),
     staleTime: 2 * 60_000,
   })
-
   // ── Filters ──
-  const [statusF,  setStatusF]  = useState<'all'|'pending'|'approved'|'rejected'>('all')
-  const [typeF,    setTypeF]    = useState<'all'|'feeder'|'chronic'>('all')
-  const [zoneF,    setZoneF]    = useState('all')
-  const [search,   setSearch]   = useState('')
-  const [page,     setPage]     = useState(1)
+  const [statusF, setStatusF] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [typeF, setTypeF] = useState<'all' | 'feeder' | 'chronic'>('all')
+  const [zoneF, setZoneF] = useState('all')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<FeederPointRequest | null>(null)
 
   // ── Bulk select ──
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [bulkZone,    setBulkZone]    = useState('')
-  const [bulkUpdating,setBulkUpdating]= useState(false)
+  const [bulkZone, setBulkZone] = useState('')
+  const [bulkUpdating, setBulkUpdating] = useState(false)
 
   // ── Inline zone edit ──
-  const [editingZone,   setEditingZone]   = useState(false)
+  const [editingZone, setEditingZone] = useState(false)
   const [editZoneValue, setEditZoneValue] = useState('')
-  const [zoneUpdating,  setZoneUpdating]  = useState(false)
+  const [zoneUpdating, setZoneUpdating] = useState(false)
 
   // ── Acting ──
   const [acting, setActing] = useState<string | null>(null)
 
   const ITEMS = 50
 
-  const uniqueZones = useMemo(() => {
-    const zones = new Set(requests.map(r => (r.zoneNumber || (r as any).ward || '')).filter(Boolean))
+ const uniqueZones = useMemo(() => {
+    const zones = new Set<string>(requests.map((r: FeederPointRequest) => (r.zoneNumber || (r as any).ward || '')).filter(Boolean))
     return Array.from(zones).sort((a, b) => {
       const na = Number(a), nb = Number(b)
       return (!isNaN(na) && !isNaN(nb)) ? na - nb : String(a).localeCompare(String(b))
@@ -74,7 +73,7 @@ export default function FeederPointRequestsPage() {
   // Base filter (search + zone + type)
   const base = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return requests.filter(r => {
+    return requests.filter((r: FeederPointRequest) => {
       if (zoneF !== 'all' && String(r.zoneNumber || '') !== zoneF) return false
       if (typeF !== 'all' && getPointType(r) !== typeF) return false
       if (!q) return true
@@ -87,16 +86,16 @@ export default function FeederPointRequestsPage() {
   }, [requests, zoneF, typeF, search])
 
   const stats = useMemo(() => ({
-    total:    base.length,
-    pending:  base.filter(r => r.status === 'pending').length,
-    approved: base.filter(r => r.status === 'approved').length,
-    rejected: base.filter(r => r.status === 'rejected').length,
-    feeder:   base.filter(r => getPointType(r) === 'feeder').length,
-    chronic:  base.filter(r => getPointType(r) === 'chronic').length,
+    total: base.length,
+    pending: base.filter((r: FeederPointRequest) => r.status === 'pending').length,
+    approved: base.filter((r: FeederPointRequest) => r.status === 'approved').length,
+    rejected: base.filter((r: FeederPointRequest) => r.status === 'rejected').length,
+    feeder: base.filter((r: FeederPointRequest) => getPointType(r) === 'feeder').length,
+    chronic: base.filter((r: FeederPointRequest) => getPointType(r) === 'chronic').length,
   }), [base])
 
   const filtered = useMemo(() =>
-    statusF === 'all' ? base : base.filter(r => r.status === statusF),
+    statusF === 'all' ? base : base.filter((r: FeederPointRequest) => r.status === statusF),
     [base, statusF]
   )
 
@@ -169,7 +168,7 @@ export default function FeederPointRequestsPage() {
   const handleDownload = async () => {
     if (!filtered.length) return
     const XLSX = await import('xlsx')
-    const rows = filtered.map(r => ({
+    const rows = filtered.map((r: FeederPointRequest) => ({
       'Request ID': r.id,
       'Point Type': getPointType(r).toUpperCase(),
       'Feeder Point': r.feederPointName || r.areaName || 'N/A',
@@ -198,8 +197,8 @@ export default function FeederPointRequestsPage() {
   }
 
   // ── Color helpers ──
-  const statusColor = (s: string) => s==='approved' ? T.green : s==='rejected' ? T.red : T.amber
-  const typeColor   = (t: 'feeder'|'chronic') => t==='chronic' ? T.gold : T.accent
+  const statusColor = (s: string) => s === 'approved' ? T.green : s === 'rejected' ? T.red : T.amber
+  const typeColor = (t: 'feeder' | 'chronic') => t === 'chronic' ? T.gold : T.accent
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -242,15 +241,15 @@ export default function FeederPointRequestsPage() {
       {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {[
-          { label: 'Total',    value: stats.total,    color: T.accent  },
-          { label: 'Pending',  value: stats.pending,  color: T.amber   },
-          { label: 'Approved', value: stats.approved, color: T.green   },
-          { label: 'Rejected', value: stats.rejected, color: T.red     },
-          { label: 'Feeder',   value: stats.feeder,   color: T.accent  },
-          { label: 'Chronic',  value: stats.chronic,  color: T.gold    },
+          { label: 'Total', value: stats.total, color: T.accent },
+          { label: 'Pending', value: stats.pending, color: T.amber },
+          { label: 'Approved', value: stats.approved, color: T.green },
+          { label: 'Rejected', value: stats.rejected, color: T.red },
+          { label: 'Feeder', value: stats.feeder, color: T.accent },
+          { label: 'Chronic', value: stats.chronic, color: T.gold },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl p-3"
-            style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: `slideUp 0.4s ease ${i*40}ms both` }}>
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: `slideUp 0.4s ease ${i * 40}ms both` }}>
             <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textSecondary }}>{s.label}</p>
             <p className="text-[20px] font-bold leading-none" style={{ color: s.color, fontFamily: "'JetBrains Mono', monospace" }}>{s.value}</p>
           </div>
@@ -268,7 +267,7 @@ export default function FeederPointRequestsPage() {
               className="w-full pl-10 pr-8 py-2 rounded-xl text-sm"
               style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
             {search && (
-              <button onClick={() => setSearch('')} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:T.textMuted }}>
+              <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}>
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
@@ -286,31 +285,31 @@ export default function FeederPointRequestsPage() {
           <span className="text-[10px] font-semibold uppercase tracking-wider flex items-center" style={{ color: T.textMuted }}>
             <Filter className="h-3 w-3 mr-1" /> Status:
           </span>
-          {(['all','pending','approved','rejected'] as const).map(s => (
+          {(['all', 'pending', 'approved', 'rejected'] as const).map(s => (
             <button key={s} onClick={() => setStatusF(s)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold"
               style={{
-                background: statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.surface,
-                color: statusF===s ? (dark?'#000':'#fff') : T.textSecondary,
-                border: `1px solid ${statusF===s ? (s==='all' ? T.accent : statusColor(s)) : T.cardBorder}`,
+                background: statusF === s ? (s === 'all' ? T.accent : statusColor(s)) : T.surface,
+                color: statusF === s ? (dark ? '#000' : '#fff') : T.textSecondary,
+                border: `1px solid ${statusF === s ? (s === 'all' ? T.accent : statusColor(s)) : T.cardBorder}`,
                 cursor: 'pointer',
               }}>
-              {s.charAt(0).toUpperCase()+s.slice(1)}
+              {s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
           <span className="text-[10px] font-semibold uppercase tracking-wider flex items-center ml-2" style={{ color: T.textMuted }}>
             <Zap className="h-3 w-3 mr-1" /> Type:
           </span>
-          {(['all','feeder','chronic'] as const).map(t => (
+          {(['all', 'feeder', 'chronic'] as const).map(t => (
             <button key={t} onClick={() => setTypeF(t)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold"
               style={{
-                background: typeF===t ? (t==='chronic' ? T.gold : t==='feeder' ? T.accent : T.accent) : T.surface,
-                color: typeF===t ? (dark?'#000':'#fff') : T.textSecondary,
-                border: `1px solid ${typeF===t ? (t==='chronic' ? T.gold : T.accent) : T.cardBorder}`,
+                background: typeF === t ? (t === 'chronic' ? T.gold : t === 'feeder' ? T.accent : T.accent) : T.surface,
+                color: typeF === t ? (dark ? '#000' : '#fff') : T.textSecondary,
+                border: `1px solid ${typeF === t ? (t === 'chronic' ? T.gold : T.accent) : T.cardBorder}`,
                 cursor: 'pointer',
               }}>
-              {t.charAt(0).toUpperCase()+t.slice(1)}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -327,7 +326,7 @@ export default function FeederPointRequestsPage() {
             style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
           <button onClick={handleBulkZone} disabled={bulkUpdating || !bulkZone.trim()}
             className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40"
-            style={{ background: T.accent, color: dark?'#000':'#fff', border: 'none', cursor: 'pointer' }}>
+            style={{ background: T.accent, color: dark ? '#000' : '#fff', border: 'none', cursor: 'pointer' }}>
             {bulkUpdating ? 'Updating…' : 'Update Zone'}
           </button>
           <button onClick={() => setSelectedIds(new Set())}
@@ -357,22 +356,22 @@ export default function FeederPointRequestsPage() {
                 <tr style={{ background: T.surface, borderBottom: `1px solid ${T.cardBorder}` }}>
                   <th className="px-3 py-3 text-center" style={{ width: 40 }}>
                     <input type="checkbox"
-                      checked={paged.length > 0 && paged.every(r => selectedIds.has(r.id))}
+                      checked={paged.length > 0 && paged.every((r: FeederPointRequest) => selectedIds.has(r.id))}
                       onChange={e => {
                         const s = new Set(selectedIds)
-                        paged.forEach(r => e.target.checked ? s.add(r.id) : s.delete(r.id))
+                        paged.forEach((r: FeederPointRequest) => e.target.checked ? s.add(r.id) : s.delete(r.id))
                         setSelectedIds(s)
                       }}
                       style={{ accentColor: T.accent, cursor: 'pointer' }} />
                   </th>
-                  {['Feeder Point','Type','Requester','Zone / Ward / Kothi','Priority','Status','Submitted','Actions'].map(h => (
+                  {['Feeder Point', 'Type', 'Requester', 'Zone / Ward / Kothi', 'Priority', 'Status', 'Submitted', 'Actions'].map(h => (
                     <th key={h} className="text-left px-4 py-3 font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ fontSize: 10, color: T.accent }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {paged.map(r => {
+                {paged.map((r: FeederPointRequest) => {
                   const pt = getPointType(r)
                   const tc = typeColor(pt)
                   const sc = statusColor(r.status || 'pending')
@@ -438,9 +437,9 @@ export default function FeederPointRequestsPage() {
 
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
-                          {(r.status||'pending')==='approved' && <CheckCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
-                          {(r.status||'pending')==='rejected' && <XCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
-                          {(r.status||'pending')==='pending'  && <Clock className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {(r.status || 'pending') === 'approved' && <CheckCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {(r.status || 'pending') === 'rejected' && <XCircle className="h-3.5 w-3.5" style={{ color: sc }} />}
+                          {(r.status || 'pending') === 'pending' && <Clock className="h-3.5 w-3.5" style={{ color: sc }} />}
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
                             style={{ background: `${sc}15`, color: sc }}>
                             {r.status || 'pending'}
@@ -454,7 +453,7 @@ export default function FeederPointRequestsPage() {
 
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => { setSelected(r); setEditingZone(false); setTimeout(() => document.getElementById('details-card')?.scrollIntoView({ behavior:'smooth', block:'start' }), 100) }}
+                          onClick={() => { setSelected(r); setEditingZone(false); setTimeout(() => document.getElementById('details-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100) }}
                           className="p-1.5 rounded-lg"
                           style={{ background: T.accentDim, color: T.accent, border: 'none', cursor: 'pointer' }}>
                           <Eye className="h-3.5 w-3.5" />
@@ -472,14 +471,14 @@ export default function FeederPointRequestsPage() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: `1px solid ${T.cardBorder}` }}>
             <span className="text-xs" style={{ color: T.textMuted }}>
-              {(page-1)*ITEMS+1}–{Math.min(page*ITEMS,filtered.length)} of {filtered.length}
+              {(page - 1) * ITEMS + 1}–{Math.min(page * ITEMS, filtered.length)} of {filtered.length}
             </span>
             <div className="flex items-center gap-2">
-              <button disabled={page===1} onClick={() => setPage(p=>p-1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
-                style={{ border:`1px solid ${T.cardBorder}`, color:T.textSecondary, background:'transparent', cursor:page===1?'not-allowed':'pointer' }}>← Prev</button>
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
+                style={{ border: `1px solid ${T.cardBorder}`, color: T.textSecondary, background: 'transparent', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>← Prev</button>
               <span className="text-xs" style={{ color: T.textMuted }}>Page {page} of {totalPages}</span>
-              <button disabled={page===totalPages} onClick={() => setPage(p=>p+1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
-                style={{ border:`1px solid ${T.cardBorder}`, color:T.textSecondary, background:'transparent', cursor:page===totalPages?'not-allowed':'pointer' }}>Next →</button>
+              <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-30"
+                style={{ border: `1px solid ${T.cardBorder}`, color: T.textSecondary, background: 'transparent', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>Next →</button>
             </div>
           </div>
         )}
@@ -499,7 +498,7 @@ export default function FeederPointRequestsPage() {
                   {getPointType(selected)}
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                  style={{ background: `${statusColor(selected.status||'pending')}15`, color: statusColor(selected.status||'pending') }}>
+                  style={{ background: `${statusColor(selected.status || 'pending')}15`, color: statusColor(selected.status || 'pending') }}>
                   {selected.status || 'pending'}
                 </span>
               </div>
@@ -519,19 +518,19 @@ export default function FeederPointRequestsPage() {
           {/* Info grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {[
-              { label:'Requested By', value: selected.userName },
-              { label:'Email',        value: selected.userEmail },
-              { label:'Phone',        value: (selected as any).userPhone },
-              { label:'Priority',     value: selected.priority || 'medium' },
-              { label:'Submitted',    value: formatDate(selected.submittedAt) },
-              { label:'Ward',         value: selected.wardNumber },
-              { label:'Kothi',        value: selected.kothiName },
-              { label:'Feeder Point', value: selected.feederPointName },
-              { label:'Landmark',     value: selected.nearestLandmark },
-              { label:'Households',   value: selected.approximateHouseholds },
-              { label:'Vehicle Type', value: selected.vehicleType },
-              { label:'Population',   value: selected.populationDensity },
-              { label:'Accessibility',value: selected.accessibility },
+              { label: 'Requested By', value: selected.userName },
+              { label: 'Email', value: selected.userEmail },
+              { label: 'Phone', value: (selected as any).userPhone },
+              { label: 'Priority', value: selected.priority || 'medium' },
+              { label: 'Submitted', value: formatDate(selected.submittedAt) },
+              { label: 'Ward', value: selected.wardNumber },
+              { label: 'Kothi', value: selected.kothiName },
+              { label: 'Feeder Point', value: selected.feederPointName },
+              { label: 'Landmark', value: selected.nearestLandmark },
+              { label: 'Households', value: selected.approximateHouseholds },
+              { label: 'Vehicle Type', value: selected.vehicleType },
+              { label: 'Population', value: selected.populationDensity },
+              { label: 'Accessibility', value: selected.accessibility },
             ].map(row => (
               <div key={row.label} className="rounded-xl px-3 py-2.5"
                 style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
@@ -550,14 +549,14 @@ export default function FeederPointRequestsPage() {
                     style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
                   <button onClick={handleEditZone} disabled={zoneUpdating}
                     className="text-[10px] px-2 py-1 rounded-lg font-semibold disabled:opacity-40"
-                    style={{ background: T.accent, color: dark?'#000':'#fff', border: 'none', cursor: 'pointer' }}>Save</button>
+                    style={{ background: T.accent, color: dark ? '#000' : '#fff', border: 'none', cursor: 'pointer' }}>Save</button>
                   <button onClick={() => setEditingZone(false)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, fontSize: 12 }}>✕</button>
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium" style={{ color: T.textPrimary }}>{selected.zoneNumber || '—'}</p>
-                  <button onClick={() => { setEditZoneValue(selected.zoneNumber||''); setEditingZone(true) }}
+                  <button onClick={() => { setEditZoneValue(selected.zoneNumber || ''); setEditingZone(true) }}
                     className="text-[10px] px-1.5 py-0.5 rounded font-semibold opacity-0 group-hover:opacity-100 hover:opacity-100"
                     style={{ background: T.accentDim, color: T.accent, border: 'none', cursor: 'pointer' }}>Edit</button>
                 </div>
