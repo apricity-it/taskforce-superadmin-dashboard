@@ -37,13 +37,15 @@ export default function AccessRequestsPage() {
   const T = getTokens(dark)
   const qc = useQueryClient()
 
-const { data: requests = [] as AccessRequest[], isLoading } = useQuery<AccessRequest[]>({
-  queryKey: ['accessRequests'],
-  queryFn: () => new Promise<AccessRequest[]>(resolve => {
-    const unsub = DataService.onAccessRequestsChange(data => { resolve(data); unsub() })
-  }),
-  staleTime: 2 * 60_000,
-})
+
+
+  const { data: requests = [] as AccessRequest[], isLoading } = useQuery<AccessRequest[]>({
+    queryKey: ['accessRequests'],
+    queryFn: () => new Promise<AccessRequest[]>(resolve => {
+      const unsub = DataService.onAccessRequestsChange(data => { resolve(data); unsub() })
+    }),
+    staleTime: 2 * 60_000,
+  })
 
   const [statusF, setStatusF] = useState('all')
   const [search, setSearch] = useState('')
@@ -56,7 +58,6 @@ const { data: requests = [] as AccessRequest[], isLoading } = useQuery<AccessReq
     approved: requests.filter(r => r.status === 'approved').length,
     rejected: requests.filter(r => r.status === 'rejected').length,
   }), [requests])
-
   const filtered = useMemo(() => {
     let r = requests
     if (statusF !== 'all') r = r.filter(x => x.status === statusF)
