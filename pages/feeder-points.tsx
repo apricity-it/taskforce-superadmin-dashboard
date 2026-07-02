@@ -15,20 +15,20 @@ import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const YES_VALUES = new Set(['yes','y','true','clean','present','available','segregated','1'])
-const NO_VALUES  = new Set(['no','n','false','dirty','absent','not present','not available','not clean','not segregated','0'])
+const YES_VALUES = new Set(['yes', 'y', 'true', 'clean', 'present', 'available', 'segregated', '1'])
+const NO_VALUES = new Set(['no', 'n', 'false', 'dirty', 'absent', 'not present', 'not available', 'not clean', 'not segregated', '0'])
 const REPORT_QUESTION_KEYS = {
-  zone:        ['q1','q1_zone_name','zone_name','zone'],
-  ward:        ['q2','q2_ward_number','ward_number'],
-  cleanliness: ['q4','feeder_point_clean','scp_area_clean'],
-  segregation: ['q7','waste_segregated','wet_dry_waste_segregation'],
-  vehicle:     ['vehicle_separate_compartments','vehicle_available','vehicle_present'],
-  swach:       ['swach_workers_present','swach_workers_count','staff_present'],
-  nearbyArea:  ['q5','surrounding_area_clean','surrounding_area_maintained'],
-  signboard:   ['q11','signboard_qr_display','qr_display','visible_signboard'],
-  compliance:  ['q12','overall_score','overall_compliance_rating'],
+  zone: ['q1', 'q1_zone_name', 'zone_name', 'zone'],
+  ward: ['q2', 'q2_ward_number', 'ward_number'],
+  cleanliness: ['q4', 'feeder_point_clean', 'scp_area_clean'],
+  segregation: ['q7', 'waste_segregated', 'wet_dry_waste_segregation'],
+  vehicle: ['vehicle_separate_compartments', 'vehicle_available', 'vehicle_present'],
+  swach: ['swach_workers_present', 'swach_workers_count', 'staff_present'],
+  nearbyArea: ['q5', 'surrounding_area_clean', 'surrounding_area_maintained'],
+  signboard: ['q11', 'signboard_qr_display', 'qr_display', 'visible_signboard'],
+  compliance: ['q12', 'overall_score', 'overall_compliance_rating'],
 } as const
-const TRIP_SEQ  = [1, 2, 3] as const
+const TRIP_SEQ = [1, 2, 3] as const
 const PAGE_SIZE = 25
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -80,11 +80,11 @@ function collectPhotos(r?: ComplianceReport): string[] {
 }
 function statusBadge(s?: ComplianceReport['status']) {
   switch (s) {
-    case 'approved':        return { label: 'Approved',        cls: 'bg-green-100 text-green-700'  }
-    case 'rejected':        return { label: 'Rejected',        cls: 'bg-red-100 text-red-700'      }
-    case 'requires_action': return { label: 'Requires Action', cls: 'bg-orange-100 text-orange-700'}
-    case 'pending':         return { label: 'Pending',         cls: 'bg-yellow-100 text-yellow-700'}
-    default:                return { label: 'Unknown',         cls: 'bg-gray-100 text-gray-700'    }
+    case 'approved': return { label: 'Approved', cls: 'bg-green-100 text-green-700' }
+    case 'rejected': return { label: 'Rejected', cls: 'bg-red-100 text-red-700' }
+    case 'requires_action': return { label: 'Requires Action', cls: 'bg-orange-100 text-orange-700' }
+    case 'pending': return { label: 'Pending', cls: 'bg-yellow-100 text-yellow-700' }
+    default: return { label: 'Unknown', cls: 'bg-gray-100 text-gray-700' }
   }
 }
 
@@ -107,32 +107,32 @@ export default function FeederPointsPage() {
   const qc = useQueryClient()
 
   // ── Data via React Query (cached, no re-fetch on navigate) ──
-  const { data: allPoints = [], isLoading: loadingPoints } = useQuery({
+  const { data: allPoints = [], isLoading: loadingPoints } = useQuery<FeederPoint[]>({
     queryKey: ['feederPoints'],
     queryFn: () => DataService.getAllFeederPoints(),
     staleTime: 5 * 60_000,
   })
-  const { data: teams = [] } = useQuery({
+  const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn: () => DataService.getAllUsers().then(() => []).catch(() => []) as unknown as Promise<Team[]>,
     staleTime: 10 * 60_000,
     // Real fetch via onTeamsChange subscription below
   })
-  const { data: users = [] } = useQuery({
+  const { data: users = [] } = useQuery<User[]>({
     queryKey: ['approvedUsers'],
     queryFn: () => DataService.getAllUsers(),
     staleTime: 5 * 60_000,
   })
-  const { data: allReports = [] } = useQuery({
+  const { data: allReports = [] } = useQuery<ComplianceReport[]>({
     queryKey: ['complianceReports', 'all'],
     queryFn: () => DataService.getAllComplianceReports(),
     staleTime: 5 * 60_000,
   })
 
-  const [teamsData, setTeamsData]   = useState<Team[]>([])
-  const [zones, setZones]           = useState<Zone[]>([])
-  const [wards, setWards]           = useState<Ward[]>([])
-  const [kothis, setKothis]         = useState<Kothi[]>([])
+  const [teamsData, setTeamsData] = useState<Team[]>([])
+  const [zones, setZones] = useState<Zone[]>([])
+  const [wards, setWards] = useState<Ward[]>([])
+  const [kothis, setKothis] = useState<Kothi[]>([])
 
   useEffect(() => {
     const u1 = DataService.onTeamsChange(setTeamsData)
@@ -143,38 +143,38 @@ export default function FeederPointsPage() {
   }, [])
 
   // ── Filters ──
-  const [search,       setSearch]       = useState('')
-  const [statusF,      setStatusF]      = useState('active')
-  const [assignF,      setAssignF]      = useState('all')
-  const [zoneF,        setZoneF]        = useState('')
-  const [wardF,        setWardF]        = useState('')
-  const [kothiF,       setKothiF]       = useState('')
-  const [page,         setPage]         = useState(1)
-  const [togglingId,   setTogglingId]   = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [statusF, setStatusF] = useState('active')
+  const [assignF, setAssignF] = useState('all')
+  const [zoneF, setZoneF] = useState('')
+  const [wardF, setWardF] = useState('')
+  const [kothiF, setKothiF] = useState('')
+  const [page, setPage] = useState(1)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
   // ── Modals ──
-  const [detailFP,     setDetailFP]     = useState<any | null>(null)
-  const [detailReports,setDetailReports]= useState<ComplianceReport[]>([])
-  const [detailLoading,setDetailLoading]= useState(false)
-  const [editFP,       setEditFP]       = useState<any | null>(null)
+  const [detailFP, setDetailFP] = useState<any | null>(null)
+  const [detailReports, setDetailReports] = useState<ComplianceReport[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [editFP, setEditFP] = useState<any | null>(null)
 
   // ── Derived last inspection from reports ──
-  const lastInspMap = useMemo(() => buildLastInspectionMap(allReports.filter(r => (r.feederPointType ?? 'feeder') === 'feeder')), [allReports])
+  const lastInspMap = useMemo(() => buildLastInspectionMap(allReports.filter((r: ComplianceReport) => (r.feederPointType ?? 'feeder') === 'feeder')), [allReports])
 
   // ── Feeder-only + enrich assignmentDetails ──
   const feederPoints = useMemo(() => {
     return allPoints
-      .filter(fp => (fp.type ?? 'feeder') === 'feeder')
-      .map(fp => {
+      .filter((fp: FeederPoint) => (fp.type ?? 'feeder') === 'feeder')
+      .map((fp: FeederPoint) => {
         let aDetails = (fp as any).assignmentDetails || null
         if (!aDetails && fp.assignedUserId) {
-          const u = users.find(u => u.id === fp.assignedUserId)
+          const u = users.find((u: User) => u.id === fp.assignedUserId)
           if (u) aDetails = { type: 'individual', name: u.name || 'Unknown', email: u.email, id: fp.assignedUserId, role: u.role }
         }
         if (!aDetails && fp.assignedTeamId) {
-          const t = teamsData.find(t => t.id === fp.assignedTeamId)
+          const t = teamsData.find((t: Team) => t.id === fp.assignedTeamId)
           if (t) {
-            const active = (t.members || []).filter(m => m.isActive)
+            const active = (t.members || []).filter((m: any) => m.isActive)
             aDetails = { type: 'team', name: t.name, memberCount: active.length, id: fp.assignedTeamId, members: active }
           }
         }
@@ -184,23 +184,22 @@ export default function FeederPointsPage() {
 
   // ── Stats ──
   const stats = useMemo(() => ({
-    total:       feederPoints.length,
-    active:      feederPoints.filter(p => p.status === 'active' && !p.isEliminated).length,
-    maintenance: feederPoints.filter(p => p.status === 'maintenance' && !p.isEliminated).length,
-    inactive:    feederPoints.filter(p => p.status === 'inactive' && !p.isEliminated).length,
-    eliminated:  feederPoints.filter(p => p.isEliminated).length,
-    assigned:    feederPoints.filter(p => p.assignmentDetails && !p.isEliminated).length,
-    unassigned:  feederPoints.filter(p => !p.assignmentDetails && !p.isEliminated).length,
-    withGPS:     feederPoints.filter(p => p.location?.latitude && p.location?.longitude).length,
-    neverInsp:   feederPoints.filter(p => !p.lastInspectionDerived && !p.isEliminated).length,
+    total: feederPoints.length,
+    active: feederPoints.filter((p: any) => p.status === 'active' && !p.isEliminated).length,
+    maintenance: feederPoints.filter((p: any) => p.status === 'maintenance' && !p.isEliminated).length,
+    inactive: feederPoints.filter((p: any) => p.status === 'inactive' && !p.isEliminated).length,
+    eliminated: feederPoints.filter((p: any) => p.isEliminated).length,
+    assigned: feederPoints.filter((p: any) => p.assignmentDetails && !p.isEliminated).length,
+    unassigned: feederPoints.filter((p: any) => !p.assignmentDetails && !p.isEliminated).length,
+    withGPS: feederPoints.filter((p: any) => p.location?.latitude && p.location?.longitude).length,
+    neverInsp: feederPoints.filter((p: any) => !p.lastInspectionDerived && !p.isEliminated).length,
   }), [feederPoints])
-
   // ── Filtered ──
   const filtered = useMemo(() => {
     let r = feederPoints
     if (search) {
       const s = search.toLowerCase()
-      r = r.filter(fp =>
+      r = r.filter((fp: any) =>
         fp.name?.toLowerCase().includes(s) ||
         fp.location?.address?.toLowerCase().includes(s) ||
         fp.assignmentDetails?.name?.toLowerCase().includes(s) ||
@@ -208,25 +207,25 @@ export default function FeederPointsPage() {
         fp.wardName?.toLowerCase().includes(s)
       )
     }
-    if (statusF === 'eliminated') r = r.filter(fp => fp.isEliminated)
+    if (statusF === 'eliminated') r = r.filter((fp: any) => fp.isEliminated)
     else {
-      r = r.filter(fp => !fp.isEliminated)
-      if (statusF !== 'all') r = r.filter(fp => fp.status === statusF)
+      r = r.filter((fp: any) => !fp.isEliminated)
+      if (statusF !== 'all') r = r.filter((fp: any) => fp.status === statusF)
     }
-    if (assignF === 'assigned')   r = r.filter(fp => !!fp.assignmentDetails)
-    if (assignF === 'unassigned') r = r.filter(fp => !fp.assignmentDetails)
-    if (assignF === 'individual') r = r.filter(fp => fp.assignmentDetails?.type === 'individual')
-    if (assignF === 'team')       r = r.filter(fp => fp.assignmentDetails?.type === 'team')
+    if (assignF === 'assigned') r = r.filter((fp: any) => !!fp.assignmentDetails)
+    if (assignF === 'unassigned') r = r.filter((fp: any) => !fp.assignmentDetails)
+    if (assignF === 'individual') r = r.filter((fp: any) => fp.assignmentDetails?.type === 'individual')
+    if (assignF === 'team') r = r.filter((fp: any) => fp.assignmentDetails?.type === 'team')
 
     if (kothiF) {
-      r = r.filter(fp => fp.kothiId === kothiF)
+      r = r.filter((fp: any) => fp.kothiId === kothiF)
     } else if (wardF) {
-      const kIds = kothis.filter(k => k.wardId === wardF).map(k => k.id)
-      r = r.filter(fp => fp.wardId === wardF || kIds.includes(fp.kothiId || ''))
+      const kIds = kothis.filter((k: Kothi) => k.wardId === wardF).map((k: Kothi) => k.id)
+      r = r.filter((fp: any) => fp.wardId === wardF || kIds.includes(fp.kothiId || ''))
     } else if (zoneF) {
-      const wIds = wards.filter(w => w.zoneId === zoneF).map(w => w.id)
-      const kIds = kothis.filter(k => wIds.includes(k.wardId)).map(k => k.id)
-      r = r.filter(fp => fp.zoneId === zoneF || wIds.includes(fp.wardId || '') || kIds.includes(fp.kothiId || ''))
+      const wIds = wards.filter((w: Ward) => w.zoneId === zoneF).map((w: Ward) => w.id)
+      const kIds = kothis.filter((k: Kothi) => wIds.includes(k.wardId)).map((k: Kothi) => k.id)
+      r = r.filter((fp: any) => fp.zoneId === zoneF || wIds.includes(fp.wardId || '') || kIds.includes(fp.kothiId || ''))
     }
     return r
   }, [feederPoints, search, statusF, assignF, zoneF, wardF, kothiF, zones, wards, kothis])
@@ -278,7 +277,7 @@ export default function FeederPointsPage() {
   }
 
   const handleExport = () => {
-    const data = filtered.map((fp: any, i) => ({
+    const data = filtered.map((fp: any, i: number) => ({
       Sr_No: i + 1,
       Name: fp.name || '',
       ID: fp.id,
@@ -303,19 +302,19 @@ export default function FeederPointsPage() {
       `FeederPoints_${Date.now()}.xlsx`)
   }
 
-  const wardOpts  = wards.filter(w => w.zoneId === zoneF)
+  const wardOpts = wards.filter(w => w.zoneId === zoneF)
   const kothiOpts = kothis.filter(k => k.wardId === wardF)
 
   const statusCls = (s: string) => ({
-    active:      'bg-emerald-100 text-emerald-800',
+    active: 'bg-emerald-100 text-emerald-800',
     maintenance: 'bg-amber-100 text-amber-800',
-    inactive:    'bg-red-100 text-red-800',
+    inactive: 'bg-red-100 text-red-800',
   }[s] || 'bg-gray-100 text-gray-700')
 
   const priorityCls = (p: string) => ({
-    high:   'bg-red-100 text-red-800',
+    high: 'bg-red-100 text-red-800',
     medium: 'bg-amber-100 text-amber-800',
-    low:    'bg-green-100 text-green-800',
+    low: 'bg-green-100 text-green-800',
   }[p] || 'bg-gray-100 text-gray-700')
 
   if (loadingPoints) {
@@ -357,14 +356,14 @@ export default function FeederPointsPage() {
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {[
-          { label: 'Total',       value: stats.total,       color: T.accent  },
-          { label: 'Active',      value: stats.active,      color: T.green   },
-          { label: 'Maintenance', value: stats.maintenance, color: T.amber   },
-          { label: 'Inactive',    value: stats.inactive,    color: T.textMuted },
-          { label: 'Eliminated',  value: stats.eliminated,  color: T.red     },
-          { label: 'Assigned',    value: stats.assigned,    color: T.purple  },
-          { label: 'Unassigned',  value: stats.unassigned,  color: T.amber   },
-          { label: 'Never Inspected', value: stats.neverInsp, color: T.red   },
+          { label: 'Total', value: stats.total, color: T.accent },
+          { label: 'Active', value: stats.active, color: T.green },
+          { label: 'Maintenance', value: stats.maintenance, color: T.amber },
+          { label: 'Inactive', value: stats.inactive, color: T.textMuted },
+          { label: 'Eliminated', value: stats.eliminated, color: T.red },
+          { label: 'Assigned', value: stats.assigned, color: T.purple },
+          { label: 'Unassigned', value: stats.unassigned, color: T.amber },
+          { label: 'Never Inspected', value: stats.neverInsp, color: T.red },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl p-3"
             style={{ background: T.card, border: `1px solid ${T.cardBorder}`, animation: `slideUp 0.4s ease ${i * 40}ms both` }}>
@@ -377,14 +376,18 @@ export default function FeederPointsPage() {
       {/* ── Assignment Breakdown ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {[
-          { title: 'Assignment Status', items: [
-            { label: 'Assigned',   value: stats.assigned,   max: stats.total, color: T.green  },
-            { label: 'Unassigned', value: stats.unassigned, max: stats.total, color: T.red    },
-          ]},
-          { title: 'Inspection Coverage', items: [
-            { label: 'Inspected (ever)',  value: stats.total - stats.neverInsp - stats.eliminated, max: stats.total, color: T.green },
-            { label: 'Never inspected',  value: stats.neverInsp, max: stats.total, color: T.amber },
-          ]},
+          {
+            title: 'Assignment Status', items: [
+              { label: 'Assigned', value: stats.assigned, max: stats.total, color: T.green },
+              { label: 'Unassigned', value: stats.unassigned, max: stats.total, color: T.red },
+            ]
+          },
+          {
+            title: 'Inspection Coverage', items: [
+              { label: 'Inspected (ever)', value: stats.total - stats.neverInsp - stats.eliminated, max: stats.total, color: T.green },
+              { label: 'Never inspected', value: stats.neverInsp, max: stats.total, color: T.amber },
+            ]
+          },
         ].map(card => (
           <div key={card.title} className="rounded-2xl p-4" style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
             <p className="text-sm font-semibold mb-3" style={{ color: T.textPrimary }}>{card.title}</p>
@@ -501,7 +504,7 @@ export default function FeederPointsPage() {
                     </p>
                   </td>
                 </tr>
-              ) : paged.map((fp: any, i) => (
+              ) : paged.map((fp: any, i: number) => (
                 <tr key={fp.id || i}
                   className="transition-colors"
                   style={{ borderBottom: `1px solid ${T.gridLine}`, opacity: fp.isEliminated ? 0.6 : 1 }}
@@ -739,11 +742,11 @@ function EditModal({ fp, dark, T, onChange, onSave, onClose }: any) {
 // ─── Detail Modal ─────────────────────────────────────────────────────────────
 function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
   const [histFilter, setHistFilter] = useState('all')
-  const [histPage,   setHistPage]   = useState(1)
-  const [selReport,  setSelReport]  = useState<ComplianceReport | null>(null)
-  const [aiLoading,  setAiLoading]  = useState(false)
-  const [aiResult,   setAiResult]   = useState<string | null>(null)
-  const [aiError,    setAiError]    = useState<string | null>(null)
+  const [histPage, setHistPage] = useState(1)
+  const [selReport, setSelReport] = useState<ComplianceReport | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiResult, setAiResult] = useState<string | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   useEffect(() => { setHistFilter('all'); setSelReport(null); setHistPage(1) }, [reports])
   useEffect(() => { setAiResult(null); setAiError(null) }, [selReport])
@@ -777,8 +780,8 @@ function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
   }, [reports])
 
   const filteredHist = histFilter === 'all' ? history : history.filter((h: any) => h.status === histFilter)
-  const histPages    = Math.ceil(filteredHist.length / 10)
-  const pagedHist    = filteredHist.slice((histPage - 1) * 10, histPage * 10)
+  const histPages = Math.ceil(filteredHist.length / 10)
+  const pagedHist = filteredHist.slice((histPage - 1) * 10, histPage * 10)
 
   const tripRows = useMemo(() => TRIP_SEQ.map(n => {
     const r = reports.find((x: ComplianceReport) => x.tripNumber === n) || reports[n - 1]
@@ -786,13 +789,13 @@ function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
     const photos = collectPhotos(r)
     return {
       label: `Trip ${n}`,
-      time:       d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
-      distance:   typeof r?.distanceFromFeederPoint === 'number' ? `${Math.round(r.distanceFromFeederPoint)}m` : '—',
-      clean:      fmtBool(getAnswer(r, REPORT_QUESTION_KEYS.cleanliness), 'Yes', 'No', '—'),
+      time: d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+      distance: typeof r?.distanceFromFeederPoint === 'number' ? `${Math.round(r.distanceFromFeederPoint)}m` : '—',
+      clean: fmtBool(getAnswer(r, REPORT_QUESTION_KEYS.cleanliness), 'Yes', 'No', '—'),
       segregated: fmtBool(getAnswer(r, REPORT_QUESTION_KEYS.segregation), 'Yes', 'No', '—'),
-      vehicle:    fmtBool(getAnswer(r, REPORT_QUESTION_KEYS.vehicle), 'Yes', 'No', '—'),
-      workers:    fmtWorkers(getAnswer(r, REPORT_QUESTION_KEYS.swach)),
-      photo:      r ? (photos.length > 0 ? 'Yes' : 'No') : '—',
+      vehicle: fmtBool(getAnswer(r, REPORT_QUESTION_KEYS.vehicle), 'Yes', 'No', '—'),
+      workers: fmtWorkers(getAnswer(r, REPORT_QUESTION_KEYS.swach)),
+      photo: r ? (photos.length > 0 ? 'Yes' : 'No') : '—',
       photos,
       hasData: !!r,
     }
@@ -867,11 +870,11 @@ function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
             <p className="text-sm font-bold mb-3" style={{ color: T.textPrimary }}>2. Report Status Summary</p>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {[
-                { label: 'Total',          value: statusSummary.total,          color: T.accent  },
-                { label: 'Approved',       value: statusSummary.approved,       color: T.green   },
-                { label: 'Rejected',       value: statusSummary.rejected,       color: T.red     },
-                { label: 'Requires Action',value: statusSummary.requiresAction, color: T.amber   },
-                { label: 'Pending',        value: statusSummary.pending,        color: T.textMuted },
+                { label: 'Total', value: statusSummary.total, color: T.accent },
+                { label: 'Approved', value: statusSummary.approved, color: T.green },
+                { label: 'Rejected', value: statusSummary.rejected, color: T.red },
+                { label: 'Requires Action', value: statusSummary.requiresAction, color: T.amber },
+                { label: 'Pending', value: statusSummary.pending, color: T.textMuted },
               ].map(s => (
                 <div key={s.label} className="rounded-xl px-3 py-2.5 text-center"
                   style={{ background: `${s.color}10`, border: `1px solid ${s.color}25` }}>
@@ -891,7 +894,7 @@ function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
               <table className="w-full" style={{ fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: T.surface, borderBottom: `1px solid ${T.cardBorder}` }}>
-                    {['Trip','Time','Distance','Clean','Segregated','Vehicle','Workers','Photos'].map(h => (
+                    {['Trip', 'Time', 'Distance', 'Clean', 'Segregated', 'Vehicle', 'Workers', 'Photos'].map(h => (
                       <th key={h} className="px-3 py-2 text-left font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.textSecondary }}>{h}</th>
                     ))}
                   </tr>
@@ -966,7 +969,7 @@ function DetailModal({ fp, reports, loading, dark, T, onClose }: any) {
               <table className="w-full" style={{ fontSize: 11 }}>
                 <thead>
                   <tr style={{ background: T.surface, borderBottom: `1px solid ${T.cardBorder}` }}>
-                    {['Date','Trip','Status','Submitted By','ID'].map(h => (
+                    {['Date', 'Trip', 'Status', 'Submitted By', 'ID'].map(h => (
                       <th key={h} className="px-3 py-2 text-left font-semibold uppercase tracking-wider" style={{ fontSize: 9, color: T.textSecondary }}>{h}</th>
                     ))}
                   </tr>
