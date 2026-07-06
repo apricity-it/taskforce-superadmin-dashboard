@@ -218,7 +218,7 @@ export default function FeederPointRequestsPage() {
             <MapPin className="h-6 w-6" style={{ color: T.accent }} />
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight" style={{ color: T.textPrimary }}>Feeder Point Requests</h1>
+            <h1 className="text-2xl font-black tracking-tight" style={{ color: T.textPrimary }}>Point Requests</h1>
             <p className="text-sm" style={{ color: T.textMuted }}>
               {requests.length} total · {stats.feeder} feeder · {stats.chronic} chronic · {stats.pending} pending
             </p>

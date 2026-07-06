@@ -183,17 +183,21 @@ export default function FeederPointsPage() {
   }, [allPoints, users, teamsData, lastInspMap])
 
   // ── Stats ──
-  const stats = useMemo(() => ({
-    total: feederPoints.length,
-    active: feederPoints.filter((p: any) => p.status === 'active' && !p.isEliminated).length,
-    maintenance: feederPoints.filter((p: any) => p.status === 'maintenance' && !p.isEliminated).length,
-    inactive: feederPoints.filter((p: any) => p.status === 'inactive' && !p.isEliminated).length,
-    eliminated: feederPoints.filter((p: any) => p.isEliminated).length,
-    assigned: feederPoints.filter((p: any) => p.assignmentDetails && !p.isEliminated).length,
-    unassigned: feederPoints.filter((p: any) => !p.assignmentDetails && !p.isEliminated).length,
-    withGPS: feederPoints.filter((p: any) => p.location?.latitude && p.location?.longitude).length,
-    neverInsp: feederPoints.filter((p: any) => !p.lastInspectionDerived && !p.isEliminated).length,
-  }), [feederPoints])
+const stats = useMemo(() => {
+    const isAssignedPoint = (p: any) =>
+      !!(p.assignedTeamId || p.assignedUserId || p.assignedUserIds?.length)
+    return {
+      total: feederPoints.length,
+      active: feederPoints.filter((p: any) => p.status === 'active' && !p.isEliminated).length,
+      maintenance: feederPoints.filter((p: any) => p.status === 'maintenance' && !p.isEliminated).length,
+      inactive: feederPoints.filter((p: any) => p.status === 'inactive' && !p.isEliminated).length,
+      eliminated: feederPoints.filter((p: any) => p.isEliminated).length,
+      assigned: feederPoints.filter(isAssignedPoint).length,
+      unassigned: feederPoints.filter((p: any) => !isAssignedPoint(p)).length,
+      withGPS: feederPoints.filter((p: any) => p.location?.latitude && p.location?.longitude).length,
+      neverInsp: feederPoints.filter((p: any) => !p.lastInspectionDerived && !p.isEliminated).length,
+    }
+  }, [feederPoints])
   // ── Filtered ──
   const filtered = useMemo(() => {
     let r = feederPoints

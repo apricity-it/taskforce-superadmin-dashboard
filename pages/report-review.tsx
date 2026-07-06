@@ -16,25 +16,26 @@ import { getTokens } from '@/lib/dashboardTheme'
 import { useSearchParams } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type TabKey     = 'pending' | 'approved' | 'rejected' | 'requires_action'
-type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'all'
-type SortField  = 'date' | 'feederPoint' | 'userName'
-type PointType  = 'all' | 'feeder' | 'chronic'
+type TabKey     = 'total' | 'pending' | 'approved' | 'rejected' | 'requires_action'
+type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'
+type SortField = 'date' | 'feederPoint' | 'userName'
+type PointType = 'all' | 'feeder' | 'chronic'
 
-const PAGE_SIZE      = 20
+const PAGE_SIZE = 20
 const LOAD_MORE_SIZE = 20
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().split('T')[0]
 
-function getDateRange(preset: DatePreset) {
+function getDateRange(preset: DatePreset, customStart?: string, customEnd?: string) {
   const today = todayStr()
   switch (preset) {
-    case 'today':     return { start: today, end: today }
-    case 'yesterday': { const d=new Date(); d.setDate(d.getDate()-1); const y=d.toISOString().split('T')[0]; return { start:y, end:y } }
-    case 'week':      { const d=new Date(); d.setDate(d.getDate()-7); return { start:d.toISOString().split('T')[0], end:today } }
-    case 'month':     { const d=new Date(); return { start:new Date(d.getFullYear(),d.getMonth(),1).toISOString().split('T')[0], end:today } }
-    case 'all':       return { start: '2020-01-01', end: today }
+    case 'today': return { start: today, end: today }
+    case 'yesterday': { const d = new Date(); d.setDate(d.getDate() - 1); const y = d.toISOString().split('T')[0]; return { start: y, end: y } }
+    case 'week': { const d = new Date(); d.setDate(d.getDate() - 7); return { start: d.toISOString().split('T')[0], end: today } }
+    case 'month': { const d = new Date(); return { start: new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0], end: today } }
+    case 'all': return { start: '2020-01-01', end: today }
+    case 'custom': return { start: customStart || '2020-01-01', end: customEnd || today }
   }
 }
 
@@ -56,15 +57,15 @@ function getTS(r: ComplianceReport): number {
     const v = r.submittedAt
     const d = v?.toDate ? v.toDate() : new Date(v)
     if (!isNaN(d.getTime())) return d.getTime()
-  } catch {}
+  } catch { }
   return 0
 }
 
 function fmtShort(r: ComplianceReport): string {
   try {
     const ts = getTS(r)
-    if (ts) return new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
-  } catch {}
+    if (ts) return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch { }
   return '—'
 }
 
@@ -72,18 +73,18 @@ function fmtFull(r: ComplianceReport): string {
   try {
     const ts = getTS(r)
     if (ts) return new Date(ts).toLocaleString()
-  } catch {}
+  } catch { }
   return '—'
 }
 
 function timeSince(r: ComplianceReport): string {
   const diff = Date.now() - getTS(r)
-  const m=Math.floor(diff/60000), h=Math.floor(m/60), dy=Math.floor(h/24)
-  if (m<1) return 'Just now'
-  if (m<60) return `${m}m ago`
-  if (h<24) return `${h}h ago`
-  if (dy<7) return `${dy}d ago`
-  return `${Math.floor(dy/7)}w ago`
+  const m = Math.floor(diff / 60000), h = Math.floor(m / 60), dy = Math.floor(h / 24)
+  if (m < 1) return 'Just now'
+  if (m < 60) return `${m}m ago`
+  if (h < 24) return `${h}h ago`
+  if (dy < 7) return `${dy}d ago`
+  return `${Math.floor(dy / 7)}w ago`
 }
 
 function inDateRange(r: ComplianceReport, start: string, end: string): boolean {
@@ -96,50 +97,52 @@ function inDateRange(r: ComplianceReport, start: string, end: string): boolean {
       const d = new Date(ts).toISOString().split('T')[0]
       return d >= start && d <= end
     }
-  } catch {}
+  } catch { }
   return false
 }
 
 // ─── Tab config (using T tokens, set at render time) ─────────────────────────
-const TABS: TabKey[] = ['pending', 'approved', 'rejected', 'requires_action']
-const TAB_LABELS: Record<TabKey, string> = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', requires_action: 'Action Req.' }
-const TAB_FULL:   Record<TabKey, string> = { pending: 'Pending Reports', approved: 'Approved Reports', rejected: 'Rejected Reports', requires_action: 'Action Required' }
+const TABS: TabKey[] = ['total', 'pending', 'approved', 'rejected', 'requires_action']
+const TAB_LABELS: Record<TabKey, string> = { total: 'Total', pending: 'Pending', approved: 'Approved', rejected: 'Rejected', requires_action: 'Action Req.' }
+const TAB_FULL:   Record<TabKey, string> = { total: 'All Reports', pending: 'Pending Reports', approved: 'Approved Reports', rejected: 'Rejected Reports', requires_action: 'Action Required' }
 const DATE_PRESETS: { key: DatePreset; label: string }[] = [
-  { key:'today', label:'Today' }, { key:'yesterday', label:'Yesterday' },
-  { key:'week', label:'This Week' }, { key:'month', label:'This Month' },
-  { key:'all', label:'All' },
+  { key: 'today', label: 'Today' }, { key: 'yesterday', label: 'Yesterday' },
+  { key: 'week', label: 'This Week' }, { key: 'month', label: 'This Month' },
+  { key: 'all', label: 'All' }, { key: 'custom', label: 'Custom' },
 ]
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ReportReviewPage() {
-  const { user }       = useAuth()
-  const { theme }      = useTheme()
-  const dark           = theme === 'dark'
-  const T              = getTokens(dark)
-  const qc             = useQueryClient()
-  const searchParams   = useSearchParams()
-  const isPmc          = user?.role === 'pmc_member'
+  const { user } = useAuth()
+  const { theme } = useTheme()
+  const dark = theme === 'dark'
+  const T = getTokens(dark)
+  const qc = useQueryClient()
+  const searchParams = useSearchParams()
+  const isPmc = user?.role === 'pmc_member'
 
   const getInitialTab = (): TabKey => {
     const t = searchParams.get('tab')
     return (TABS.includes(t as TabKey)) ? t as TabKey : 'pending'
   }
 
-  const [activeTab,   setActiveTab]   = useState<TabKey>(getInitialTab())
-  const [datePreset,  setDatePreset]  = useState<DatePreset>('today')
-  const [pointType,   setPointType]   = useState<PointType>('all')
-  const [search,      setSearch]      = useState('')
-  const [sortField,   setSortField]   = useState<SortField>('date')
-  const [sortDir,     setSortDir]     = useState<'asc'|'desc'>('desc')
-  const [dispCount,   setDispCount]   = useState(PAGE_SIZE)
-  const [selected,    setSelected]    = useState<ComplianceReport|null>(null)
-  const [changing,    setChanging]    = useState<string|null>(null)
-  const [allReports,  setAllReports]  = useState<ComplianceReport[]>([])
-  const [loading,     setLoading]     = useState(true)
+  const [activeTab, setActiveTab] = useState<TabKey>(getInitialTab())
+  const [datePreset, setDatePreset] = useState<DatePreset>('today')
+  const [pointType, setPointType] = useState<PointType>('all')
+  const [search, setSearch] = useState('')
+  const [sortField, setSortField] = useState<SortField>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [dispCount, setDispCount] = useState(PAGE_SIZE)
+  const [selected, setSelected] = useState<ComplianceReport | null>(null)
+  const [changing, setChanging] = useState<string | null>(null)
+  const [allReports, setAllReports] = useState<ComplianceReport[]>([])
+  const [loading, setLoading] = useState(true)
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
-  const dateRange = useMemo(() => getDateRange(datePreset), [datePreset])
+  const dateRange = useMemo(() => getDateRange(datePreset, customStart, customEnd), [datePreset, customStart, customEnd])
 
   // Live subscription
   useEffect(() => {
@@ -152,46 +155,52 @@ export default function ReportReviewPage() {
   }, [])
 
   // Tab counts — by status + date + type
-  const tabCounts = useMemo(() => {
-    const c: Record<TabKey, number> = { pending:0, approved:0, rejected:0, requires_action:0 }
+ const tabCounts = useMemo(() => {
+    const c: Record<TabKey, number> = { total:0, pending:0, approved:0, rejected:0, requires_action:0 }
+    const q = search.trim().toLowerCase()
     allReports.forEach(r => {
       if (!inDateRange(r, dateRange.start, dateRange.end)) return
       if (pointType !== 'all' && getReportType(r) !== pointType) return
+      if (q && !([(r.feederPointName||''),(r.userName||''),(r.teamName||''),(r.description||'')].some(v=>v.toLowerCase().includes(q)))) return
+      c.total++
       if (r.status in c) c[r.status as TabKey]++
     })
     return c
-  }, [allReports, dateRange, pointType])
+  }, [allReports, dateRange, pointType, search])
 
-  // Feeder/chronic split for current tab
-  const typeSplit = useMemo(() => {
-    const feeder  = allReports.filter(r => r.status === activeTab && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'feeder').length
-    const chronic = allReports.filter(r => r.status === activeTab && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'chronic').length
+const typeSplit = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const matchesSearch = (r: ComplianceReport) =>
+      !q || [(r.feederPointName||''),(r.userName||''),(r.teamName||''),(r.description||'')].some(v=>v.toLowerCase().includes(q))
+    const matchesStatus = (r: ComplianceReport) => activeTab === 'total' || r.status === activeTab
+    const feeder  = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'feeder' && matchesSearch(r)).length
+    const chronic = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'chronic' && matchesSearch(r)).length
     return { feeder, chronic }
-  }, [allReports, activeTab, dateRange])
+  }, [allReports, activeTab, dateRange, search])
 
   const filtered = useMemo(() => {
-    let list = allReports.filter(r => {
-      if (r.status !== activeTab) return false
+   let list = allReports.filter(r => {
+      if (activeTab !== 'total' && r.status !== activeTab) return false
       if (!inDateRange(r, dateRange.start, dateRange.end)) return false
       if (pointType !== 'all' && getReportType(r) !== pointType) return false
       if (search.trim()) {
         const q = search.trim().toLowerCase()
-        if (![(r.feederPointName||''),(r.userName||''),(r.teamName||''),(r.description||'')].some(v=>v.toLowerCase().includes(q))) return false
+        if (![(r.feederPointName || ''), (r.userName || ''), (r.teamName || ''), (r.description || '')].some(v => v.toLowerCase().includes(q))) return false
       }
       return true
     })
-    list.sort((a,b) => {
+    list.sort((a, b) => {
       let cmp = 0
-      if (sortField==='date')        cmp = getTS(a) - getTS(b)
-      if (sortField==='feederPoint') cmp = (a.feederPointName||'').localeCompare(b.feederPointName||'')
-      if (sortField==='userName')    cmp = (a.userName||'').localeCompare(b.userName||'')
-      return sortDir==='desc' ? -cmp : cmp
+      if (sortField === 'date') cmp = getTS(a) - getTS(b)
+      if (sortField === 'feederPoint') cmp = (a.feederPointName || '').localeCompare(b.feederPointName || '')
+      if (sortField === 'userName') cmp = (a.userName || '').localeCompare(b.userName || '')
+      return sortDir === 'desc' ? -cmp : cmp
     })
     return list
   }, [allReports, activeTab, dateRange, pointType, search, sortField, sortDir])
 
   const displayed = useMemo(() => filtered.slice(0, dispCount), [filtered, dispCount])
-  const hasMore   = dispCount < filtered.length
+  const hasMore = dispCount < filtered.length
 
   useEffect(() => { setDispCount(PAGE_SIZE) }, [activeTab, search, sortField, sortDir, datePreset, pointType])
 
@@ -205,7 +214,7 @@ export default function ReportReviewPage() {
   }, [hasMore, displayed.length])
 
   const handleSort = (f: SortField) => {
-    if (sortField === f) setSortDir(p => p==='asc'?'desc':'asc')
+    if (sortField === f) setSortDir(p => p === 'asc' ? 'desc' : 'asc')
     else { setSortField(f); setSortDir('desc') }
   }
 
@@ -222,8 +231,8 @@ export default function ReportReviewPage() {
     await DataService.updateComplianceReportStatus(r.id, s, notes, user.name)
   }
 
-  const total     = Object.values(tabCounts).reduce((a,b) => a+b, 0)
-  const tabColor  = (tab: TabKey) => ({ pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red }[tab])
+  const total = Object.values(tabCounts).reduce((a, b) => a + b, 0)
+  const tabColor  = (tab: TabKey) => ({ total: T.accent, pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red }[tab])
   const activeColor = tabColor(activeTab)
 
   return (
@@ -254,7 +263,7 @@ export default function ReportReviewPage() {
           <button onClick={() => qc.invalidateQueries()} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold disabled:opacity-50"
             style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textSecondary, cursor: 'pointer' }}>
-            <RefreshCw className={`h-3.5 w-3.5 ${loading?'animate-spin':''}`} /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </div>
       </div>
@@ -271,19 +280,32 @@ export default function ReportReviewPage() {
             {DATE_PRESETS.map(p => (
               <button key={p.key} onClick={() => setDatePreset(p.key)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: datePreset===p.key ? T.accent : T.card, color: datePreset===p.key ? (dark?'#000':'#fff') : T.textSecondary, border: `1px solid ${datePreset===p.key ? T.accent : T.cardBorder}`, cursor: 'pointer' }}>
+                style={{ background: datePreset === p.key ? T.accent : T.card, color: datePreset === p.key ? (dark ? '#000' : '#fff') : T.textSecondary, border: `1px solid ${datePreset === p.key ? T.accent : T.cardBorder}`, cursor: 'pointer' }}>
                 {p.label}
               </button>
             ))}
           </div>
+          {datePreset === 'custom' && (
+            <div className="flex items-center gap-2">
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+                max={customEnd || todayStr()}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none', colorScheme: dark ? 'dark' : 'light' }} />
+              <span className="text-xs" style={{ color: T.textMuted }}>to</span>
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+                min={customStart} max={todayStr()}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none', colorScheme: dark ? 'dark' : 'light' }} />
+            </div>
+          )}
           <div className="flex items-center gap-1 ml-auto">
-            {(['all','feeder','chronic'] as PointType[]).map(pt => (
+            {(['all', 'feeder', 'chronic'] as PointType[]).map(pt => (
               <button key={pt} onClick={() => setPointType(pt)}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold"
                 style={{
-                  background: pointType===pt ? (pt==='chronic' ? `${T.gold}20` : T.accentDim) : T.card,
-                  color: pointType===pt ? (pt==='chronic' ? T.gold : T.accent) : T.textSecondary,
-                  border: `1px solid ${pointType===pt ? (pt==='chronic' ? T.gold : T.accent) : T.cardBorder}`,
+                  background: pointType === pt ? (pt === 'chronic' ? `${T.gold}20` : T.accentDim) : T.card,
+                  color: pointType === pt ? (pt === 'chronic' ? T.gold : T.accent) : T.textSecondary,
+                  border: `1px solid ${pointType === pt ? (pt === 'chronic' ? T.gold : T.accent) : T.cardBorder}`,
                   cursor: 'pointer',
                 }}>
                 {pt === 'feeder' && <Zap className="h-3 w-3" />}
@@ -294,10 +316,52 @@ export default function ReportReviewPage() {
           </div>
         </div>
 
+        {/* Search + Sort */}
+        <div className="px-4 py-3" style={{ borderBottom: `1px solid ${T.cardBorder}`, background: dark ? T.surface : '#fafafa' }}>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: T.textMuted }} />
+              <input type="text" placeholder="Search feeder point, user, team..."
+                value={search} onChange={e => setSearch(e.target.value)}
+                className="w-full pl-8 pr-8 py-2 rounded-xl text-sm"
+                style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {(['date', 'feederPoint', 'userName'] as SortField[]).map(f => (
+                <button key={f} onClick={() => handleSort(f)}
+                  className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-semibold"
+                  style={{
+                    background: sortField === f ? T.accentDim : T.card,
+                    color: sortField === f ? T.accent : T.textSecondary,
+                    border: `1px solid ${sortField === f ? T.accentBorder : T.cardBorder}`,
+                    cursor: 'pointer',
+                  }}>
+                  {f === 'date' ? 'Date' : f === 'feederPoint' ? 'Point' : 'User'}
+                  {sortField === f && <ArrowUpDown className="h-3 w-3" />}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[11px]" style={{ color: T.textMuted }}>
+            <span>Showing {displayed.length} of {filtered.length} {TAB_LABELS[activeTab].toLowerCase()} reports</span>
+            <div className="flex items-center gap-3">
+              <span style={{ color: T.accent }}>F: {typeSplit.feeder}</span>
+              <span style={{ color: T.gold }}>C: {typeSplit.chronic}</span>
+              {search && <span style={{ color: T.accent }}>Filtered: "{search}"</span>}
+            </div>
+          </div>
+        </div>
+
         {/* Stat cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4">
           {TABS.map(tab => {
-            const color  = tabColor(tab)
+            const color = tabColor(tab)
             const active = activeTab === tab
             return (
               <button key={tab} onClick={() => setActiveTab(tab)}
@@ -310,6 +374,7 @@ export default function ReportReviewPage() {
                   boxShadow: active ? `0 4px 12px ${color}25` : 'none',
                 }}>
                 <div className="flex items-center gap-2 mb-2">
+                {tab==='total'           && <FileText className="h-4 w-4" style={{ color }} />}
                   {tab==='pending'         && <Clock className="h-4 w-4" style={{ color }} />}
                   {tab==='approved'        && <CheckCircle className="h-4 w-4" style={{ color }} />}
                   {tab==='rejected'        && <X className="h-4 w-4" style={{ color }} />}
@@ -333,77 +398,10 @@ export default function ReportReviewPage() {
 
         <div style={{ height: 1, background: T.cardBorder, margin: '0 16px' }} />
 
-        {/* Tab bar */}
-        <div className="flex" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
-          {TABS.map(tab => {
-            const active = activeTab === tab
-            const color  = tabColor(tab)
-            return (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className="relative flex-1 flex items-center justify-center gap-1.5 px-2 py-3.5 text-xs font-semibold"
-                style={{ color: active ? color : T.textSecondary, background: active ? `${color}08` : 'transparent', cursor: 'pointer', border: 'none' }}>
-                {tab==='pending'         && <Clock className="h-3.5 w-3.5" />}
-                {tab==='approved'        && <CheckCircle className="h-3.5 w-3.5" />}
-                {tab==='rejected'        && <X className="h-3.5 w-3.5" />}
-                {tab==='requires_action' && <AlertTriangle className="h-3.5 w-3.5" />}
-                <span className="hidden sm:inline">{TAB_LABELS[tab]}</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={{ background: active ? `${color}20` : T.surface, color: active ? color : T.textMuted }}>
-                  {tabCounts[tab]}
-                </span>
-                {active && <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t" style={{ background: color }} />}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Search + Sort */}
-        <div className="px-4 py-3" style={{ borderBottom: `1px solid ${T.cardBorder}`, background: dark ? T.surface : '#fafafa' }}>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: T.textMuted }} />
-              <input type="text" placeholder="Search feeder point, user, team..."
-                value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-8 py-2 rounded-xl text-sm"
-                style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}>
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5">
-              {(['date','feederPoint','userName'] as SortField[]).map(f => (
-                <button key={f} onClick={() => handleSort(f)}
-                  className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-semibold"
-                  style={{
-                    background: sortField===f ? T.accentDim : T.card,
-                    color: sortField===f ? T.accent : T.textSecondary,
-                    border: `1px solid ${sortField===f ? T.accentBorder : T.cardBorder}`,
-                    cursor: 'pointer',
-                  }}>
-                  {f==='date'?'Date':f==='feederPoint'?'Point':'User'}
-                  {sortField===f && <ArrowUpDown className="h-3 w-3" />}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between text-[11px]" style={{ color: T.textMuted }}>
-            <span>Showing {displayed.length} of {filtered.length} {TAB_LABELS[activeTab].toLowerCase()} reports</span>
-            <div className="flex items-center gap-3">
-              <span style={{ color: T.accent }}>F: {typeSplit.feeder}</span>
-              <span style={{ color: T.gold }}>C: {typeSplit.chronic}</span>
-              {search && <span style={{ color: T.accent }}>Filtered: "{search}"</span>}
-            </div>
-          </div>
-        </div>
-
-        {/* Content */}
         <div className="p-4">
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {Array.from({length:6}).map((_,i) => (
+              {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="rounded-xl p-4 animate-pulse" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
                   <div className="flex gap-3 mb-3">
                     <div className="h-9 w-9 rounded-lg flex-shrink-0" style={{ background: T.cardBorder }} />
@@ -425,7 +423,7 @@ export default function ReportReviewPage() {
               </div>
               <p className="text-sm font-semibold" style={{ color: T.textPrimary }}>No {TAB_LABELS[activeTab]} Reports</p>
               <p className="text-xs mt-1" style={{ color: T.textMuted }}>
-                {activeTab==='pending' ? 'All reports reviewed for this period.' : `No ${TAB_FULL[activeTab].toLowerCase()} for the selected filters.`}
+                {activeTab === 'pending' ? 'All reports reviewed for this period.' : `No ${TAB_FULL[activeTab].toLowerCase()} for the selected filters.`}
               </p>
             </div>
           ) : (
@@ -450,7 +448,7 @@ export default function ReportReviewPage() {
 
               {hasMore && (
                 <div ref={loadMoreRef} className="mt-6 flex flex-col items-center gap-2">
-                  <button onClick={() => setDispCount(p => p+LOAD_MORE_SIZE)}
+                  <button onClick={() => setDispCount(p => p + LOAD_MORE_SIZE)}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium"
                     style={{ background: T.surface, border: `1px solid ${T.cardBorder}`, color: T.textSecondary, cursor: 'pointer' }}>
                     <ChevronDown className="h-4 w-4" />
@@ -485,10 +483,10 @@ function ReportCard({ report, dark, T, activeTab, activeColor, onView, onStatusC
   onStatusChange?: (r: ComplianceReport, s: ComplianceReport['status']) => void
 }) {
   const isPending = activeTab === 'pending'
-  const rtype     = getReportType(report)
+  const rtype = getReportType(report)
   const typeColor = rtype === 'chronic' ? T.gold : T.accent
-  const answers   = getReportAnswers(report)
-  const imgCount  = answers.reduce((n: number, a: any) => n + (Array.isArray(a.photos) ? a.photos.filter((p: string) => p.startsWith('https')).length : 0), 0)
+  const answers = getReportAnswers(report)
+  const imgCount = answers.reduce((n: number, a: any) => n + (Array.isArray(a.photos) ? a.photos.filter((p: string) => p.startsWith('https')).length : 0), 0)
 
   return (
     <div className="rounded-xl overflow-hidden transition-all hover:-translate-y-0.5"
@@ -502,10 +500,11 @@ function ReportCard({ report, dark, T, activeTab, activeColor, onView, onStatusC
           <div className="flex items-start gap-2.5 flex-1 min-w-0">
             <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg mt-0.5"
               style={{ background: `${activeColor}15` }}>
-              {activeTab==='pending'         && <Clock className="h-4 w-4" style={{ color: activeColor }} />}
-              {activeTab==='approved'        && <CheckCircle className="h-4 w-4" style={{ color: activeColor }} />}
-              {activeTab==='rejected'        && <X className="h-4 w-4" style={{ color: activeColor }} />}
-              {activeTab==='requires_action' && <AlertTriangle className="h-4 w-4" style={{ color: activeColor }} />}
+              {activeTab === 'total' && <FileText className="h-4 w-4" style={{ color: activeColor }} />}
+              {activeTab === 'pending' && <Clock className="h-4 w-4" style={{ color: activeColor }} />}
+              {activeTab === 'approved' && <CheckCircle className="h-4 w-4" style={{ color: activeColor }} />}
+              {activeTab === 'rejected' && <X className="h-4 w-4" style={{ color: activeColor }} />}
+              {activeTab === 'requires_action' && <AlertTriangle className="h-4 w-4" style={{ color: activeColor }} />}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate" style={{ color: T.textPrimary }}>
@@ -538,13 +537,13 @@ function ReportCard({ report, dark, T, activeTab, activeColor, onView, onStatusC
           <span className="flex items-center gap-1"><User className="h-3 w-3" />{report.userName || 'Unknown'}</span>
           {report.teamName && <span className="flex items-center gap-1"><Users className="h-3 w-3" />{report.teamName}</span>}
           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{fmtShort(report)}</span>
-          {imgCount > 0 && <span className="flex items-center gap-1" style={{ color: T.accent }}><ImageIcon className="h-3 w-3" />{imgCount} photo{imgCount!==1?'s':''}</span>}
+          {imgCount > 0 && <span className="flex items-center gap-1" style={{ color: T.accent }}><ImageIcon className="h-3 w-3" />{imgCount} photo{imgCount !== 1 ? 's' : ''}</span>}
         </div>
 
         <div className="flex items-center gap-2 mt-1.5 text-[11px]" style={{ color: T.textMuted }}>
           <FileText className="h-3 w-3" />
-          {answers.length} answer{answers.length!==1?'s':''}
-          {typeof report.distanceFromFeederPoint==='number' && report.distanceFromFeederPoint > 0 && (
+          {answers.length} answer{answers.length !== 1 ? 's' : ''}
+          {typeof report.distanceFromFeederPoint === 'number' && report.distanceFromFeederPoint > 0 && (
             <><span>·</span><MapPin className="h-3 w-3" />{report.distanceFromFeederPoint.toFixed(0)}m from FP</>
           )}
         </div>
@@ -561,21 +560,21 @@ function ReportCard({ report, dark, T, activeTab, activeColor, onView, onStatusC
 
         {onStatusChange && (
           <div className="flex items-center gap-1.5">
-            {activeTab!=='approved' && (
+            {activeTab !== 'approved' && (
               <button onClick={() => onStatusChange(report, 'approved')}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium"
                 style={{ background: `${T.green}15`, border: `1px solid ${T.green}30`, color: T.green, cursor: 'pointer' }}>
                 <CheckCircle className="h-3.5 w-3.5" /><span className="hidden lg:inline">Approve</span>
               </button>
             )}
-            {activeTab!=='rejected' && (
+            {activeTab !== 'rejected' && (
               <button onClick={() => onStatusChange(report, 'rejected')}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium"
                 style={{ background: `${T.red}15`, border: `1px solid ${T.red}30`, color: T.red, cursor: 'pointer' }}>
                 <X className="h-3.5 w-3.5" /><span className="hidden lg:inline">Reject</span>
               </button>
             )}
-            {activeTab!=='requires_action' && (
+            {activeTab !== 'requires_action' && (
               <button onClick={() => onStatusChange(report, 'requires_action')}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium"
                 style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}30`, color: T.amber, cursor: 'pointer' }}>
@@ -596,13 +595,13 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
   onStatusChange?: (r: ComplianceReport, s: ComplianceReport['status'], notes: string) => Promise<void>
   isPmcMember?: boolean
 }) {
-  const [notes,    setNotes]    = useState('')
+  const [notes, setNotes] = useState('')
   const [updating, setUpdating] = useState(false)
-  const [bigImg,   setBigImg]   = useState<string|null>(null)
-  const [imgErr,   setImgErr]   = useState<Record<string,boolean>>({})
+  const [bigImg, setBigImg] = useState<string | null>(null)
+  const [imgErr, setImgErr] = useState<Record<string, boolean>>({})
 
-  const rtype   = getReportType(report)
-  const color   = rtype==='chronic' ? T.gold : T.accent
+  const rtype = getReportType(report)
+  const color = rtype === 'chronic' ? T.gold : T.accent
   const answers = getReportAnswers(report)
 
   const doStatus = async (s: ComplianceReport['status']) => {
@@ -613,7 +612,7 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
     finally { setUpdating(false) }
   }
 
-  const statusColor = { pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red, action_taken: T.accent }[report.status as TabKey | 'action_taken'] ?? T.textMuted
+  const statusColor = { total: T.accent, pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red, action_taken: T.accent }[report.status as TabKey | 'action_taken'] ?? T.textMuted
   const allPhotos = answers.flatMap((a: any) => (Array.isArray(a.photos) ? a.photos.filter((p: string) => p.startsWith('https')) : []))
 
   return (
@@ -634,7 +633,7 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
                     style={{ background: `${statusColor}20`, color: statusColor }}>
-                    {report.status.replace(/_/g,' ').toUpperCase()}
+                    {report.status.replace(/_/g, ' ').toUpperCase()}
                   </span>
                 </div>
                 <h2 className="text-lg font-bold truncate" style={{ color: T.textPrimary }}>
@@ -655,7 +654,7 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
             <div className="p-5 space-y-5">
 
               {/* Pending banner */}
-              {report.status==='pending' && !isPmcMember && (
+              {report.status === 'pending' && !isPmcMember && (
                 <div className="flex items-start gap-3 rounded-xl p-3"
                   style={{ background: `${T.amber}10`, border: `1px solid ${T.amber}30` }}>
                   <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" style={{ color: T.amber }} />
@@ -669,11 +668,11 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
               {/* Info grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  { label: 'Status',   value: report.status.replace(/_/g,' '), color: statusColor },
-                  { label: 'Type',     value: rtype,                            color              },
-                  { label: 'Answers',  value: String(answers.length),           color: T.textPrimary },
-                  { label: 'Photos',   value: String(allPhotos.length),         color: T.accent    },
-                ].map((item,i) => (
+                  { label: 'Status', value: report.status.replace(/_/g, ' '), color: statusColor },
+                  { label: 'Type', value: rtype, color },
+                  { label: 'Answers', value: String(answers.length), color: T.textPrimary },
+                  { label: 'Photos', value: String(allPhotos.length), color: T.accent },
+                ].map((item, i) => (
                   <div key={i} className="rounded-xl p-3 text-center"
                     style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
                     <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textMuted }}>{item.label}</p>
@@ -687,9 +686,9 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
                 <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textSecondary }}>Report Details</p>
                 <div className="rounded-xl p-4 space-y-2.5" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
                   {[
-                    { icon: User, label: 'Submitted by', value: `${report.userName||'Unknown'}${report.teamName?` (${report.teamName})`:''}` },
+                    { icon: User, label: 'Submitted by', value: `${report.userName || 'Unknown'}${report.teamName ? ` (${report.teamName})` : ''}` },
                     { icon: Clock, label: 'Submitted at', value: fmtFull(report) },
-                    ...(report.submittedLocation?.address ? [{ icon: MapPin, label: 'Location', value: `${report.submittedLocation.address}${typeof report.distanceFromFeederPoint==='number'?` (${report.distanceFromFeederPoint.toFixed(1)}m from FP)`:''}` }] : []),
+                    ...(report.submittedLocation?.address ? [{ icon: MapPin, label: 'Location', value: `${report.submittedLocation.address}${typeof report.distanceFromFeederPoint === 'number' ? ` (${report.distanceFromFeederPoint.toFixed(1)}m from FP)` : ''}` }] : []),
                     ...(report.description ? [{ icon: MessageSquare, label: 'Description', value: report.description }] : []),
                   ].map((row, i) => (
                     <div key={i} className="flex items-start gap-2">
@@ -715,8 +714,8 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
                       return (
                         <div key={i} className="rounded-xl p-3" style={{ background: T.surface, border: `1px solid ${T.cardBorder}` }}>
                           <p className="text-xs font-medium" style={{ color: T.textPrimary }}>
-                            <span style={{ color: T.textMuted }}>Q{i+1}: </span>
-                            {ans.questionId?.replace(/_/g,' ') || `Question ${i+1}`}
+                            <span style={{ color: T.textMuted }}>Q{i + 1}: </span>
+                            {ans.questionId?.replace(/_/g, ' ') || `Question ${i + 1}`}
                           </p>
                           <p className="mt-1 text-sm" style={{ color: T.textPrimary }}>
                             <span style={{ color: T.textMuted }}>A: </span>{String(ans.answer ?? '—')}
@@ -730,13 +729,13 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
                                   onClick={() => setBigImg(url)}>
                                   {imgErr[url]
                                     ? <div className="w-full h-full flex items-center justify-center" style={{ background: T.surface }}>
-                                        <ImageIcon className="h-4 w-4" style={{ color: T.textMuted }} />
+                                      <ImageIcon className="h-4 w-4" style={{ color: T.textMuted }} />
+                                    </div>
+                                    : <><img src={url} alt="" className="w-full h-full object-cover" onError={() => setImgErr(p => ({ ...p, [url]: true }))} />
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                                        <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                                       </div>
-                                    : <><img src={url} alt="" className="w-full h-full object-cover" onError={() => setImgErr(p=>({...p,[url]:true}))} />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
-                                          <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                      </>
+                                    </>
                                   }
                                 </div>
                               ))}
@@ -762,8 +761,8 @@ function DetailModal({ report, dark, T, onClose, onStatusChange, isPmcMember }: 
                   <div className="flex flex-col sm:flex-row gap-2">
                     {[
                       { label: 'Approve', status: 'approved' as const, color: T.green, icon: <CheckCircle className="h-4 w-4" /> },
-                      { label: 'Reject',  status: 'rejected' as const, color: T.red,   icon: <X className="h-4 w-4" /> },
-                      { label: 'Action',  status: 'requires_action' as const, color: T.amber, icon: <AlertTriangle className="h-4 w-4" /> },
+                      { label: 'Reject', status: 'rejected' as const, color: T.red, icon: <X className="h-4 w-4" /> },
+                      { label: 'Action', status: 'requires_action' as const, color: T.amber, icon: <AlertTriangle className="h-4 w-4" /> },
                     ].map(btn => (
                       <button key={btn.status} onClick={() => doStatus(btn.status)} disabled={updating}
                         className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"

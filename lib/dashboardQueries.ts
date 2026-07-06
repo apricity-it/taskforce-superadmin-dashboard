@@ -241,17 +241,20 @@ export interface DashboardKPIs {
   activeChronicPoints: number
   assignedChronicPoints: number
   unassignedChronicPoints: number
+  eliminatedFeederPoints: number
+  eliminatedChronicPoints: number
   eliminatedPoints: number
   unassignedPoints: number
   totalShiftReports: number
   completedShifts: number
   inProgressShifts: number
-  totalUsers: number
+ totalUsers: number
   activeUsers: number
   inactiveUsers: number
   adminUsers: number
   qcUsers: number
   taskForceUsers: number
+  pmcMemberUsers: number
   actionOfficerUsers: number
   commissionerUsers: number
   pendingPointRequests: number
@@ -536,18 +539,20 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
   const activeChronicPoints = chronicPts.filter(p => p.status === 'active' && !p.isEliminated).length
   const assignedChronicPoints = chronicPts.filter(isAssigned).length
   const unassignedChronicPoints = chronicPts.filter(isUnassigned).length
+  const eliminatedFeederPoints  = feederPts.filter(p => p.isEliminated).length
+  const eliminatedChronicPoints = chronicPts.filter(p => p.isEliminated).length
   const eliminatedPoints    = allPoints.filter(p => p.isEliminated).length
   const unassignedPoints    = allPoints.filter(p =>
     !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !(p.assignedUserIds?.length)
   ).length
  
-  // Single-field count queries — no composite index needed
+// Single-field count queries — no composite index needed
   const [
     totalReports, pendingReports, approvedReports, rejectedReports,
     requiresAction, actionTaken,
     totalShiftReports, completedShifts, inProgressShifts,
     totalUsers, activeUsers, inactiveUsers,
-    adminUsers, qcUsers, taskForceUsers, actionOfficerUsers, commissionerUsers,
+    adminUsers, qcUsers, taskForceUsers, pmcMemberUsers, actionOfficerUsers, commissionerUsers,
     pendingPointRequests, pendingFreqRequests, pendingAccessRequests,
     unreadNotifications,
   ] = await Promise.all([
@@ -567,6 +572,7 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
     safe(() => getCountFromServer(query(au, where('role', '==', 'qc'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'task_force_team'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'pmc_member'))).then(s => s.data().count), 0),
+    safe(() => getCountFromServer(query(au, where('role', '==', 'action_officer'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(au, where('role', '==', 'commissioner'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(collection(db, 'feederPointRequests'), where('status', '==', 'pending'))).then(s => s.data().count), 0),
     safe(() => getCountFromServer(query(collection(db, 'frequencyRequests'), where('status', '==', 'pending'))).then(s => s.data().count), 0),
@@ -574,15 +580,16 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
     safe(() => getCountFromServer(query(collection(db, 'notifications'), where('isRead', '==', false))).then(s => s.data().count), 0),
   ])
  
-  return {
+return {
     totalReports, pendingReports, approvedReports, rejectedReports,
     requiresAction, actionTaken,
     totalFeederPoints, activeFeederPoints, assignedFeederPoints, unassignedFeederPoints,
     totalChronicPoints, activeChronicPoints, assignedChronicPoints, unassignedChronicPoints,
+    eliminatedFeederPoints, eliminatedChronicPoints,
     eliminatedPoints, unassignedPoints,
     totalShiftReports, completedShifts, inProgressShifts,
     totalUsers, activeUsers, inactiveUsers,
-    adminUsers, qcUsers, taskForceUsers, actionOfficerUsers, commissionerUsers,
+    adminUsers, qcUsers, taskForceUsers, pmcMemberUsers, actionOfficerUsers, commissionerUsers,
     pendingPointRequests, pendingFreqRequests, pendingAccessRequests,
     totalNotifications: totalReports,
     unreadNotifications,

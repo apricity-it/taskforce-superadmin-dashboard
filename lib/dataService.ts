@@ -508,7 +508,7 @@ export class DataService {
           (options?.userEmail && data.submittedBy === options.userEmail) ||
           (options?.userName && data.userName === options.userName);
         if (!matches) return;
-                const report = { ...data, id: d.id } as ComplianceReport;
+        const report = { ...data, id: d.id } as ComplianceReport;
         if (applyDateFilter(report)) reportsMap.set(report.id, report);
       });
     }
@@ -597,11 +597,18 @@ export class DataService {
 
   static onUsersChange(callback: (users: User[]) => void) {
     return onSnapshot(
-      query(collection(db, 'approvedUsers'), orderBy('createdAt', 'desc')),
-      snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User)))
+      collection(db, 'approvedUsers'),
+      snapshot => {
+        const users = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
+        users.sort((a, b) => {
+          const aT = DataService.coerceDate(a.createdAt)?.getTime() ?? 0;
+          const bT = DataService.coerceDate(b.createdAt)?.getTime() ?? 0;
+          return bT - aT;
+        });
+        callback(users);
+      }
     );
   }
-
   static async getAllUsers(): Promise<User[]> {
     const snapshot = await getDocs(collection(db, 'approvedUsers'));
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
