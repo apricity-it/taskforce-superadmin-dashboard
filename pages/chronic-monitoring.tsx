@@ -319,7 +319,7 @@ const chronicPoints: FeederPoint[] = useMemo(() => allPoints.filter((p: FeederPo
             <Zap className="w-6 h-6" style={{ color: T.accent }} />
           </div>
           <div>
-            <h1 className="text-xl font-black leading-none" style={{ color: T.textPrimary }}>Chronic Monitoring</h1>
+            <h1 className="text-xl font-black leading-none" style={{ color: T.textPrimary }}>Chronic Team Monitoring</h1>
             <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>Inspections & Shift Reports · {chronicPoints.length} chronic points</p>
           </div>
         </div>

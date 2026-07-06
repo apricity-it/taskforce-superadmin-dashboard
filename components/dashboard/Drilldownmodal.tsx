@@ -189,27 +189,23 @@ export function DrillDownModal({
         }
       }
 
-     case 'feederPoints':
+    case 'feederPoints':
       case 'chronicPoints':
       case 'assignedFeederPoints':
       case 'unassignedFeederPoints':
       case 'assignedChronicPoints':
       case 'unassignedChronicPoints': {
-        const type = metric.toLowerCase().includes('chronic') ? 'chronic' : 'feeder'
-        const wantsAssigned = metric.startsWith('assigned')
-        const wantsUnassigned = metric.startsWith('unassigned')
-        const isAssigned = (p: FeederPoint) => !p.isEliminated && (p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)
+      const type = metric.toLowerCase().includes('chronic') ? 'chronic' : 'feeder'
+        const isAssigned = (p: FeederPoint) => !!(p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)
+        // Assigned/Unassigned drill-downs intentionally show the SAME dataset
+        // as the Total Feeder/Chronic Points drill-down — no filtering here.
         let filtered = points.filter(p => (p.type ?? 'feeder') === type)
-        if (wantsAssigned) filtered = filtered.filter(isAssigned)
-        if (wantsUnassigned) filtered = filtered.filter(p => !isAssigned(p) && !p.isEliminated)
-
         const active = filtered.filter(p => p.status === 'active' && !p.isEliminated).length
         const maintenance = filtered.filter(p => p.status === 'maintenance' && !p.isEliminated).length
         const eliminated = filtered.filter(p => p.isEliminated).length
         const inactive = filtered.filter(p => p.status === 'inactive' && !p.isEliminated).length
-        const assigned = filtered.filter(p => !p.isEliminated && (p.assignedTeamId || p.assignedUserId || (p as any).assignedUserIds?.length)).length
-        const unassigned = filtered.filter(p => !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !((p as any).assignedUserIds?.length)).length
-
+        const assigned = filtered.filter(isAssigned).length
+        const unassigned = filtered.filter(p => !isAssigned(p)).length
         const byZone: Record<string, number> = {}
         filtered.forEach(p => { const z = p.zoneName || 'Unknown'; byZone[z] = (byZone[z] || 0) + 1 })
         const zoneChart = Object.entries(byZone).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
@@ -239,10 +235,12 @@ export function DrillDownModal({
           title: titleMap[metric] || metric,
           mainValue: filtered.length,
           accent: type === 'feeder' ? T.accent : T.gold,
-          subMetrics: [
+          // Always show the same 4 tiles across Feeder Points, Assigned Feeder
+          // Points, and Unassigned Feeder Points, so the layout is consistent
+          // no matter which card the user drilled into.
+         subMetrics: [
+            { label: type === 'feeder' ? 'Total Feeder' : 'Total Chronic', value: filtered.length, color: type === 'feeder' ? T.accent : T.gold },
             { label: 'Active', value: active, color: T.green },
-            { label: 'Maintenance', value: maintenance, color: T.amber },
-            { label: 'Inactive', value: inactive, color: T.textMuted },
             { label: 'Eliminated', value: eliminated, color: T.red },
             { label: 'Assigned', value: assigned, color: T.accent },
             { label: 'Unassigned', value: unassigned, color: T.purple },
@@ -356,7 +354,7 @@ export function DrillDownModal({
         const roleFilterMap: Record<string, string | null> = {
           adminUsers: 'admin',
           qcUsers: 'qc',
-          taskForceUsers: 'taskforce',
+          taskForceUsers: 'task_force_team',
           actionOfficerUsers: 'action_officer',
         }
         const activeFilterMap: Record<string, boolean | null> = {

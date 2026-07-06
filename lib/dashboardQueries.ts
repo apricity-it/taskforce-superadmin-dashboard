@@ -241,6 +241,8 @@ export interface DashboardKPIs {
   activeChronicPoints: number
   assignedChronicPoints: number
   unassignedChronicPoints: number
+  eliminatedFeederPoints: number
+  eliminatedChronicPoints: number
   eliminatedPoints: number
   unassignedPoints: number
   totalShiftReports: number
@@ -537,6 +539,8 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
   const activeChronicPoints = chronicPts.filter(p => p.status === 'active' && !p.isEliminated).length
   const assignedChronicPoints = chronicPts.filter(isAssigned).length
   const unassignedChronicPoints = chronicPts.filter(isUnassigned).length
+  const eliminatedFeederPoints  = feederPts.filter(p => p.isEliminated).length
+  const eliminatedChronicPoints = chronicPts.filter(p => p.isEliminated).length
   const eliminatedPoints    = allPoints.filter(p => p.isEliminated).length
   const unassignedPoints    = allPoints.filter(p =>
     !p.isEliminated && !p.assignedTeamId && !p.assignedUserId && !(p.assignedUserIds?.length)
@@ -576,11 +580,12 @@ export async function buildDashboardKPIs(): Promise<DashboardKPIs> {
     safe(() => getCountFromServer(query(collection(db, 'notifications'), where('isRead', '==', false))).then(s => s.data().count), 0),
   ])
  
- return {
+return {
     totalReports, pendingReports, approvedReports, rejectedReports,
     requiresAction, actionTaken,
     totalFeederPoints, activeFeederPoints, assignedFeederPoints, unassignedFeederPoints,
     totalChronicPoints, activeChronicPoints, assignedChronicPoints, unassignedChronicPoints,
+    eliminatedFeederPoints, eliminatedChronicPoints,
     eliminatedPoints, unassignedPoints,
     totalShiftReports, completedShifts, inProgressShifts,
     totalUsers, activeUsers, inactiveUsers,

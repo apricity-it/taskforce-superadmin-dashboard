@@ -194,10 +194,11 @@ const emptyKpis: DashboardKPIs = {
   assignedFeederPoints: 0, unassignedFeederPoints: 0,
   totalChronicPoints: 0, activeChronicPoints: 0,
   assignedChronicPoints: 0, unassignedChronicPoints: 0,
+  eliminatedFeederPoints: 0, eliminatedChronicPoints: 0,
   eliminatedPoints: 0, unassignedPoints: 0,
   totalShiftReports: 0, completedShifts: 0, inProgressShifts: 0,
   totalUsers: 0, activeUsers: 0, inactiveUsers: 0,
-  adminUsers: 0, qcUsers: 0, taskForceUsers: 0, actionOfficerUsers: 0, commissionerUsers: 0,
+  adminUsers: 0, qcUsers: 0, taskForceUsers: 0, pmcMemberUsers: 0, actionOfficerUsers: 0, commissionerUsers: 0,
   pendingPointRequests: 0, pendingFreqRequests: 0, pendingAccessRequests: 0,
   totalNotifications: 0, unreadNotifications: 0,
 }
@@ -298,6 +299,8 @@ function DashboardInner() {
         activeChronicPoints: pointData.filter(p => p.type === 'chronic' && p.status === 'active').length,
         assignedChronicPoints: pointData.filter(p => p.type === 'chronic' && isAssignedPoint(p)).length,
         unassignedChronicPoints: pointData.filter(p => p.type === 'chronic' && isUnassignedPoint(p)).length,
+        eliminatedFeederPoints: pointData.filter(p => (p.type ?? 'feeder') === 'feeder' && p.isEliminated).length,
+        eliminatedChronicPoints: pointData.filter(p => p.type === 'chronic' && p.isEliminated).length,
         eliminatedPoints: pointData.filter(p => p.isEliminated).length,
         unassignedPoints: pointData.filter(isUnassignedPoint).length,
 
@@ -309,10 +312,11 @@ function DashboardInner() {
         totalUsers: userData.length,
         activeUsers: userData.filter((u: ApprovedUser) => u.isActive).length,
         inactiveUsers: userData.filter((u: ApprovedUser) => !u.isActive).length,
-       adminUsers: userData.filter((u: ApprovedUser) => u.role === 'admin').length,
+        adminUsers: userData.filter((u: ApprovedUser) => u.role === 'admin').length,
         qcUsers: userData.filter((u: ApprovedUser) => u.role === 'qc').length,
         taskForceUsers: userData.filter((u: ApprovedUser) => u.role === 'task_force_team').length,
-        actionOfficerUsers: userData.filter((u: ApprovedUser) => u.role === 'pmc_member').length,
+        pmcMemberUsers: userData.filter((u: ApprovedUser) => u.role === 'pmc_member').length,
+        actionOfficerUsers: userData.filter((u: ApprovedUser) => u.role === 'action_officer').length,
         commissionerUsers: userData.filter((u: ApprovedUser) => u.role === 'commissioner').length,
         pendingPointRequests: pointRequests.length,
         pendingFreqRequests: freqRequests.length,
@@ -393,10 +397,10 @@ function DashboardInner() {
     <>
       <div style={{ minHeight: '100vh' }}>
         <DashboardKeyframes />
-         <KPIStyles />
+        <KPIStyles />
         <style>{`@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');`}</style>
 
-       {/* ── Page meta bar ── */}
+        {/* ── Page meta bar ── */}
         <div
           className="flex items-center justify-between flex-wrap gap-3 mb-5 rounded-2xl px-5 py-3.5"
           style={{
@@ -517,10 +521,10 @@ function DashboardInner() {
             <div className="flex flex-col gap-2">
               {/* Row 1 — Feeder & Chronic point assignment */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-                <KPICard label="Total feeder points" value={kpis.totalFeederPoints} sub={`${kpis.activeFeederPoints} active`} accent={T.accent} dark={dark} delay={0} onClick={() => setDrillDownMetric('feederPoints')} />
+                <KPICard label="Total feeder points" value={kpis.totalFeederPoints} sub={`${kpis.eliminatedFeederPoints} eliminated`} accent={T.accent} dark={dark} delay={0} onClick={() => setDrillDownMetric('feederPoints')} />
                 <KPICard label="Assigned feeder points" value={kpis.assignedFeederPoints} sub="Has team/user" accent={T.green} dark={dark} delay={60} onClick={() => setDrillDownMetric('assignedFeederPoints')} />
                 <KPICard label="Unassigned feeder points" value={kpis.unassignedFeederPoints} sub="No team/user" accent={T.purple} urgent={kpis.unassignedFeederPoints > 0} dark={dark} delay={120} onClick={() => setDrillDownMetric('unassignedFeederPoints')} />
-                <KPICard label="Total chronic points" value={kpis.totalChronicPoints} sub={`${kpis.activeChronicPoints} active`} accent={T.gold} dark={dark} delay={180} onClick={() => setDrillDownMetric('chronicPoints')} />
+                <KPICard label="Total chronic points" value={kpis.totalChronicPoints} sub={`${kpis.eliminatedChronicPoints} eliminated`} accent={T.gold} dark={dark} delay={180} onClick={() => setDrillDownMetric('chronicPoints')} />
                 <KPICard label="Assigned chronic points" value={kpis.assignedChronicPoints} sub="Has team/user" accent={T.green} dark={dark} delay={240} onClick={() => setDrillDownMetric('assignedChronicPoints')} />
                 <KPICard label="Unassigned chronic points" value={kpis.unassignedChronicPoints} sub="No team/user" accent={T.purple} urgent={kpis.unassignedChronicPoints > 0} dark={dark} delay={300} onClick={() => setDrillDownMetric('unassignedChronicPoints')} />
               </div>
