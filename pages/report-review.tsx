@@ -16,7 +16,7 @@ import { getTokens } from '@/lib/dashboardTheme'
 import { useSearchParams } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type TabKey     = 'total' | 'pending' | 'approved' | 'rejected' | 'requires_action'
+type TabKey = 'total' | 'pending' | 'approved' | 'rejected' | 'requires_action'
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'
 type SortField = 'date' | 'feederPoint' | 'userName'
 type PointType = 'all' | 'feeder' | 'chronic'
@@ -104,7 +104,7 @@ function inDateRange(r: ComplianceReport, start: string, end: string): boolean {
 // ─── Tab config (using T tokens, set at render time) ─────────────────────────
 const TABS: TabKey[] = ['total', 'pending', 'approved', 'rejected', 'requires_action']
 const TAB_LABELS: Record<TabKey, string> = { total: 'Total', pending: 'Pending', approved: 'Approved', rejected: 'Rejected', requires_action: 'Action Req.' }
-const TAB_FULL:   Record<TabKey, string> = { total: 'All Reports', pending: 'Pending Reports', approved: 'Approved Reports', rejected: 'Rejected Reports', requires_action: 'Action Required' }
+const TAB_FULL: Record<TabKey, string> = { total: 'All Reports', pending: 'Pending Reports', approved: 'Approved Reports', rejected: 'Rejected Reports', requires_action: 'Action Required' }
 const DATE_PRESETS: { key: DatePreset; label: string }[] = [
   { key: 'today', label: 'Today' }, { key: 'yesterday', label: 'Yesterday' },
   { key: 'week', label: 'This Week' }, { key: 'month', label: 'This Month' },
@@ -141,8 +141,23 @@ export default function ReportReviewPage() {
   const [customEnd, setCustomEnd] = useState('')
 
   const loadMoreRef = useRef<HTMLDivElement>(null)
+  const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelRaf2Ref = useRef<number | null>(null)
 
   const dateRange = useMemo(() => getDateRange(datePreset, customStart, customEnd), [datePreset, customStart, customEnd])
+
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [tabCounts, setTabCounts] = useState<Record<TabKey, number>>({ total: 0, pending: 0, approved: 0, rejected: 0, requires_action: 0 })
+  const [typeSplit, setTypeSplit] = useState({ feeder: 0, chronic: 0 })
+  const [filtered, setFiltered] = useState<ComplianceReport[]>([])
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  // Debounce search so every keystroke doesn't trigger a full recompute
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Live subscription
   useEffect(() => {
@@ -154,50 +169,78 @@ export default function ReportReviewPage() {
     return () => unsub()
   }, [])
 
-  // Tab counts — by status + date + type
- const tabCounts = useMemo(() => {
-    const c: Record<TabKey, number> = { total:0, pending:0, approved:0, rejected:0, requires_action:0 }
-    const q = search.trim().toLowerCase()
-    allReports.forEach(r => {
-      if (!inDateRange(r, dateRange.start, dateRange.end)) return
-      if (pointType !== 'all' && getReportType(r) !== pointType) return
-      if (q && !([(r.feederPointName||''),(r.userName||''),(r.teamName||''),(r.description||'')].some(v=>v.toLowerCase().includes(q)))) return
-      c.total++
-      if (r.status in c) c[r.status as TabKey]++
-    })
-    return c
-  }, [allReports, dateRange, pointType, search])
-
-const typeSplit = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const matchesSearch = (r: ComplianceReport) =>
-      !q || [(r.feederPointName||''),(r.userName||''),(r.teamName||''),(r.description||'')].some(v=>v.toLowerCase().includes(q))
-    const matchesStatus = (r: ComplianceReport) => activeTab === 'total' || r.status === activeTab
-    const feeder  = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'feeder' && matchesSearch(r)).length
-    const chronic = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'chronic' && matchesSearch(r)).length
-    return { feeder, chronic }
-  }, [allReports, activeTab, dateRange, search])
-
-  const filtered = useMemo(() => {
-   let list = allReports.filter(r => {
-      if (activeTab !== 'total' && r.status !== activeTab) return false
-      if (!inDateRange(r, dateRange.start, dateRange.end)) return false
-      if (pointType !== 'all' && getReportType(r) !== pointType) return false
-      if (search.trim()) {
+  // Tab counts, type split, and filtered list — computed off the main render
+  // pass so the loading spinner actually gets a chance to paint first.
+  useEffect(() => {
+    setStatsLoading(true)
+    // Double rAF guarantees the browser paints the "loading" state
+    // (with the overlay/spinner) before the heavy synchronous work runs.
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
         const q = search.trim().toLowerCase()
-        if (![(r.feederPointName || ''), (r.userName || ''), (r.teamName || ''), (r.description || '')].some(v => v.toLowerCase().includes(q))) return false
-      }
-      return true
+        const matchesSearch = (r: ComplianceReport) =>
+          !q || [(r.feederPointName || ''), (r.userName || ''), (r.teamName || ''), (r.description || '')].some(v => v.toLowerCase().includes(q))
+
+        const c: Record<TabKey, number> = { total: 0, pending: 0, approved: 0, rejected: 0, requires_action: 0 }
+        allReports.forEach(r => {
+          if (!inDateRange(r, dateRange.start, dateRange.end)) return
+          if (pointType !== 'all' && getReportType(r) !== pointType) return
+          if (!matchesSearch(r)) return
+          c.total++
+          if (r.status in c) c[r.status as TabKey]++
+        })
+
+        const matchesStatus = (r: ComplianceReport) => activeTab === 'total' || r.status === activeTab
+        const feeder = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'feeder' && matchesSearch(r)).length
+        const chronic = allReports.filter(r => matchesStatus(r) && inDateRange(r, dateRange.start, dateRange.end) && getReportType(r) === 'chronic' && matchesSearch(r)).length
+
+        const list = allReports.filter(r => {
+          if (activeTab !== 'total' && r.status !== activeTab) return false
+          if (!inDateRange(r, dateRange.start, dateRange.end)) return false
+          if (pointType !== 'all' && getReportType(r) !== pointType) return false
+          if (!matchesSearch(r)) return false
+          return true
+        })
+        list.sort((a, b) => {
+          let cmp = 0
+          if (sortField === 'date') cmp = getTS(a) - getTS(b)
+          if (sortField === 'feederPoint') cmp = (a.feederPointName || '').localeCompare(b.feederPointName || '')
+          if (sortField === 'userName') cmp = (a.userName || '').localeCompare(b.userName || '')
+          return sortDir === 'desc' ? -cmp : cmp
+        })
+
+        setTabCounts(c)
+        setTypeSplit({ feeder, chronic })
+        setFiltered(list)
+        setStatsLoading(false)
+      })
+      cancelRaf2Ref.current = raf2
     })
-    list.sort((a, b) => {
-      let cmp = 0
-      if (sortField === 'date') cmp = getTS(a) - getTS(b)
-      if (sortField === 'feederPoint') cmp = (a.feederPointName || '').localeCompare(b.feederPointName || '')
-      if (sortField === 'userName') cmp = (a.userName || '').localeCompare(b.userName || '')
-      return sortDir === 'desc' ? -cmp : cmp
+    return () => {
+      cancelAnimationFrame(raf1)
+      if (cancelRaf2Ref.current) cancelAnimationFrame(cancelRaf2Ref.current)
+    }
+  }, [allReports, activeTab, dateRange, pointType, debouncedSearch, sortField, sortDir])
+
+  // Search suggestions dropdown
+  const suggestions = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return []
+    const seen = new Map<string, { label: string; type: string }>()
+    allReports.forEach(r => {
+      ;[
+        { v: r.feederPointName, type: 'Point' },
+        { v: r.userName, type: 'User' },
+        { v: r.teamName, type: 'Team' },
+      ].forEach(({ v, type }) => {
+        if (v && v.toLowerCase().includes(q)) {
+          const key = `${type}:${v}`
+          if (!seen.has(key)) seen.set(key, { label: v, type })
+        }
+      })
     })
-    return list
-  }, [allReports, activeTab, dateRange, pointType, search, sortField, sortDir])
+    return Array.from(seen.values()).slice(0, 8)
+  }, [search, allReports])
 
   const displayed = useMemo(() => filtered.slice(0, dispCount), [filtered, dispCount])
   const hasMore = dispCount < filtered.length
@@ -232,7 +275,7 @@ const typeSplit = useMemo(() => {
   }
 
   const total = Object.values(tabCounts).reduce((a, b) => a + b, 0)
-  const tabColor  = (tab: TabKey) => ({ total: T.accent, pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red }[tab])
+  const tabColor = (tab: TabKey) => ({ total: T.accent, pending: T.amber, approved: T.green, rejected: T.red, requires_action: T.red }[tab])
   const activeColor = tabColor(activeTab)
 
   return (
@@ -322,14 +365,32 @@ const typeSplit = useMemo(() => {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: T.textMuted }} />
               <input type="text" placeholder="Search feeder point, user, team..."
-                value={search} onChange={e => setSearch(e.target.value)}
+                value={search}
+                onChange={e => { setSearch(e.target.value); setShowSuggestions(true) }}
+                onFocus={() => { if (search) setShowSuggestions(true) }}
+                onBlur={() => { blurTimeout.current = setTimeout(() => setShowSuggestions(false), 120) }}
                 className="w-full pl-8 pr-8 py-2 rounded-xl text-sm"
                 style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textPrimary, outline: 'none' }} />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2"
+                <button onClick={() => { setSearch(''); setShowSuggestions(false) }} className="absolute right-3 top-1/2 -translate-y-1/2"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}>
                   <X className="h-3.5 w-3.5" />
                 </button>
+              )}
+
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl overflow-hidden z-20 shadow-xl"
+                  style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}>
+                  {suggestions.map((s, i) => (
+                    <button key={i}
+                      onMouseDown={e => { e.preventDefault(); if (blurTimeout.current) clearTimeout(blurTimeout.current); setSearch(s.label); setShowSuggestions(false) }}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textPrimary, borderBottom: i < suggestions.length - 1 ? `1px solid ${T.cardBorder}` : 'none' }}>
+                      <span className="truncate">{s.label}</span>
+                      <span className="text-[9px] font-semibold uppercase tracking-wider flex-shrink-0" style={{ color: T.textMuted }}>{s.type}</span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             <div className="flex items-center gap-1.5">
@@ -349,7 +410,7 @@ const typeSplit = useMemo(() => {
             </div>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px]" style={{ color: T.textMuted }}>
-            <span>Showing {displayed.length} of {filtered.length} {TAB_LABELS[activeTab].toLowerCase()} reports</span>
+            <span>{statsLoading ? 'Calculating…' : `Showing ${displayed.length} of ${filtered.length} ${TAB_LABELS[activeTab].toLowerCase()} reports`}</span>
             <div className="flex items-center gap-3">
               <span style={{ color: T.accent }}>F: {typeSplit.feeder}</span>
               <span style={{ color: T.gold }}>C: {typeSplit.chronic}</span>
@@ -359,7 +420,16 @@ const typeSplit = useMemo(() => {
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4">
+        <div className="relative grid grid-cols-2 sm:grid-cols-5 gap-3 p-4">
+          {statsLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl"
+              style={{ background: dark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.6)', backdropFilter: 'blur(2px)' }}>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+                style={{ background: T.card, border: `1px solid ${T.cardBorder}`, color: T.textSecondary }}>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: T.accent }} /> Updating stats…
+              </div>
+            </div>
+          )}
           {TABS.map(tab => {
             const color = tabColor(tab)
             const active = activeTab === tab
@@ -374,11 +444,11 @@ const typeSplit = useMemo(() => {
                   boxShadow: active ? `0 4px 12px ${color}25` : 'none',
                 }}>
                 <div className="flex items-center gap-2 mb-2">
-                {tab==='total'           && <FileText className="h-4 w-4" style={{ color }} />}
-                  {tab==='pending'         && <Clock className="h-4 w-4" style={{ color }} />}
-                  {tab==='approved'        && <CheckCircle className="h-4 w-4" style={{ color }} />}
-                  {tab==='rejected'        && <X className="h-4 w-4" style={{ color }} />}
-                  {tab==='requires_action' && <AlertTriangle className="h-4 w-4" style={{ color }} />}
+                  {tab === 'total' && <FileText className="h-4 w-4" style={{ color }} />}
+                  {tab === 'pending' && <Clock className="h-4 w-4" style={{ color }} />}
+                  {tab === 'approved' && <CheckCircle className="h-4 w-4" style={{ color }} />}
+                  {tab === 'rejected' && <X className="h-4 w-4" style={{ color }} />}
+                  {tab === 'requires_action' && <AlertTriangle className="h-4 w-4" style={{ color }} />}
                 </div>
                 <p className="text-[22px] font-bold leading-none" style={{ color, fontFamily: "'JetBrains Mono', monospace" }}>
                   {tabCounts[tab].toLocaleString()}
